@@ -366,6 +366,8 @@ describe('slice 2 patch 1 — backstops and races', () => {
         const s = scenario();
         const d = delegate(s);
         s.log.close(); // release our handle; children own the race
+        // Give the close a moment to release the SQLite WAL lock.
+        await new Promise(r => setTimeout(r, 50));
         const script = (n: string) =>
             `import(${JSON.stringify('file://' + process.cwd() + '/src/company/log.ts')}).then(async L => {` +
             `const Q = await import(${JSON.stringify('file://' + process.cwd() + '/src/company/queue.ts')});` +

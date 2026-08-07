@@ -19,6 +19,17 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Anthropic';
 
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 export class AnthropicProvider extends LLMProvider {
     readonly name = 'anthropic';
     readonly displayName = 'Anthropic (Claude)';
@@ -150,10 +161,10 @@ export class AnthropicProvider extends LLMProvider {
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: usage
                 ? {
-                    promptTokens: usage.input_tokens,
-                    completionTokens: usage.output_tokens,
-                    totalTokens: usage.input_tokens + usage.output_tokens,
-                    measured: true,
+                    promptTokens: normalizeTokenCount(usage.input_tokens),
+                    completionTokens: normalizeTokenCount(usage.output_tokens),
+                    totalTokens: normalizeTokenCount(usage.input_tokens) + normalizeTokenCount(usage.output_tokens),
+                    measured: isFiniteNonNeg(usage.input_tokens) && isFiniteNonNeg(usage.output_tokens),
                 }
                 : undefined,
             finishReason: (() => {

@@ -278,3 +278,41 @@ describe('OllamaProvider — native structured outputs (format passthrough)', ()
         expect(body).not.toHaveProperty('format');
     });
 });
+
+describe('OllamaProvider — honest usage.measured normalization', () => {
+    beforeEach(() => {
+        mockFetchWithRetry.mockReset();
+        mockLogger.info.mockClear();
+        mockLogger.warn.mockClear();
+    });
+
+    it('marks measured=true only when both counts are finite and nonnegative', async () => {
+        mockFetchWithRetry.mockResolvedValue(mockOllamaResponse({
+            message: { content: 'ok', tool_calls: null },
+            prompt_eval_count: 10,
+            eval_count: 5,
+        }));
+        const provider = new OllamaProvider();
+        const result = await provider.chat({
+            model: 'ollama/llama3.1',
+            messages: [{ role: 'user', content: 'Hi' }],
+        });
+        expect(result.usage!.measured).toBe(true);
+    });
+
+    it('marks measured=false when counts are missing, non-numeric, or negative', async () => {
+        const provider = new OllamaProvider();
+        for (const body of [
+            { message: { content: 'a', tool_calls: null }, prompt_eval_count: 10 },
+            { message: { content: 'b', tool_calls: null }, eval_count: 5 },
+            { message: { content: 'c', tool_calls: null }, prompt_eval_count: -1, eval_count: 5 },
+            { message: { content: 'd', tool_calls: null }, prompt_eval_count: 'ten', eval_count: 5 },
+            { message: { content: 'e', tool_calls: null }, prompt_eval_count: NaN, eval_count: 5 },
+            { message: { content: 'f', tool_calls: null }, prompt_eval_count: Infinity, eval_count: 5 },
+        ]) {
+            mockFetchWithRetry.mockResolvedValueOnce(mockOllamaResponse(body));
+            const result = await provider.chat({ model: 'ollama/llama3.1', messages: [{ role: 'user', content: 'Hi' }] });
+            expect(result.usage!.measured, JSON.stringify(body)).toBe(false);
+        }
+    });
+});

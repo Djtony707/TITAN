@@ -32,6 +32,13 @@ import { formatCurrentDateContext } from './dateContext.js';
 
 const COMPONENT = 'SubAgent';
 
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
 /** Currently running sub-agent IDs (Set for accurate tracking, prevents counter desync) */
 const activeSubAgentIds = new Set<string>();
 
@@ -695,11 +702,11 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             telemetry.returnedCalls += 1;
             telemetry.model = response.model;
             if (response.usage) {
-                telemetry.promptTokens += response.usage.promptTokens || 0;
-                telemetry.completionTokens += response.usage.completionTokens || 0;
+                telemetry.promptTokens += normalizeTokenCount(response.usage.promptTokens);
+                telemetry.completionTokens += normalizeTokenCount(response.usage.completionTokens);
                 telemetry.costUsd += calculateActualCost(response.model, {
-                    prompt: response.usage.promptTokens || 0,
-                    completion: response.usage.completionTokens || 0,
+                    prompt: normalizeTokenCount(response.usage.promptTokens),
+                    completion: normalizeTokenCount(response.usage.completionTokens),
                 });
                 telemetry.measured = telemetry.measured && (response.usage.measured === true);
             } else {

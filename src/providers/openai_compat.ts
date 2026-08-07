@@ -25,6 +25,15 @@ import { clampMaxTokens } from './modelCapabilities.js';
 // get the same model-agnostic treatment instead of a blind passthrough.
 import { getModelCapabilities as getToolCapabilities } from './ollama.js';
 
+/** Normalize a provider-reported token count to a finite nonnegative number. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === "number" && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 /**
  * Apply model-agnostic tool / structured-output controls to an OpenAI-compatible
  * request body. Without this, this provider (which fronts ~24 backends incl.
@@ -272,10 +281,10 @@ export class OpenAICompatProvider extends LLMProvider {
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: usage
                 ? {
-                    promptTokens: usage.prompt_tokens,
-                    completionTokens: usage.completion_tokens,
-                    totalTokens: usage.total_tokens,
-                    measured: true,
+                    promptTokens: normalizeTokenCount(usage.prompt_tokens),
+                    completionTokens: normalizeTokenCount(usage.completion_tokens),
+                    totalTokens: normalizeTokenCount(usage.total_tokens),
+                    measured: isFiniteNonNeg(usage.prompt_tokens) && isFiniteNonNeg(usage.completion_tokens),
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : (choice.finish_reason as 'stop' | 'length') || 'stop',
