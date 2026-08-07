@@ -23,6 +23,10 @@ import { homedir } from 'os';
 
 const COMPONENT = 'Google';
 
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 /**
  * When true, every Gemini request body that fails serialization-validation OR
  * gets a non-2xx response is dumped to ~/.titan/debug/gemini-requests/ for
@@ -250,7 +254,7 @@ export class GoogleProvider extends LLMProvider {
                     promptTokens: usageMeta.promptTokenCount || 0,
                     completionTokens: usageMeta.candidatesTokenCount || 0,
                     totalTokens: usageMeta.totalTokenCount || 0,
-                    measured: true,
+                    measured: isFiniteNonNeg(usageMeta.promptTokenCount) && isFiniteNonNeg(usageMeta.candidatesTokenCount),
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',

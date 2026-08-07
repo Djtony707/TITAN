@@ -19,6 +19,10 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'OpenAI';
 
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 export class OpenAIProvider extends LLMProvider {
     readonly name = 'openai';
     readonly displayName = 'OpenAI (GPT)';
@@ -151,7 +155,7 @@ export class OpenAIProvider extends LLMProvider {
                     promptTokens: usage.prompt_tokens,
                     completionTokens: usage.completion_tokens,
                     totalTokens: usage.total_tokens,
-                    measured: true,
+                    measured: isFiniteNonNeg(usage.prompt_tokens) && isFiniteNonNeg(usage.completion_tokens),
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : (choice.finish_reason as 'stop' | 'length') || 'stop',

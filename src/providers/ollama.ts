@@ -19,6 +19,10 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Ollama';
 
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 /**
  * Per-model context window map for Ollama cloud models.
  * Auto-configures num_ctx to each model's actual maximum to prevent truncation.
@@ -781,7 +785,7 @@ export class OllamaProvider extends LLMProvider {
                 promptTokens: (data.prompt_eval_count as number) || 0,
                 completionTokens: (data.eval_count as number) || 0,
                 totalTokens: ((data.prompt_eval_count as number) || 0) + ((data.eval_count as number) || 0),
-                measured: true,
+                measured: isFiniteNonNeg(data.prompt_eval_count) && isFiniteNonNeg(data.eval_count),
             },
             finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
             model: `ollama/${model}`,

@@ -19,6 +19,10 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Anthropic';
 
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 export class AnthropicProvider extends LLMProvider {
     readonly name = 'anthropic';
     readonly displayName = 'Anthropic (Claude)';
@@ -153,7 +157,7 @@ export class AnthropicProvider extends LLMProvider {
                     promptTokens: usage.input_tokens,
                     completionTokens: usage.output_tokens,
                     totalTokens: usage.input_tokens + usage.output_tokens,
-                    measured: true,
+                    measured: isFiniteNonNeg(usage.input_tokens) && isFiniteNonNeg(usage.output_tokens),
                 }
                 : undefined,
             finishReason: (() => {

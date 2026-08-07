@@ -27,6 +27,8 @@ import logger from '../utils/logger.js';
 import { mintActionId } from '../receipts/mint.js';
 import { calculateActualCost } from '../agent/costEstimator.js';
 import type { TurnTelemetry } from '../agent/subAgent.js';
+import { loadConfig } from '../config/config.js';
+import { isBenchMode } from '../utils/benchMode.js';
 
 const COMPONENT = 'CompanyDispatch';
 
@@ -138,10 +140,9 @@ export const productionReviewer: Reviewer = async (req) => {
         }
     } catch (err) {
         const durationMs = Date.now() - reviewStart;
-        return {
-            verdict: 'needs-work',
-            note: `Review failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
-            telemetry: {
+        throw new ReviewerTelemetryError(
+            `Review failed: ${err instanceof Error ? err.message : String(err)}`,
+            {
                 actionId: turnActionId,
                 promptTokens: 0,
                 completionTokens: 0,
@@ -152,7 +153,7 @@ export const productionReviewer: Reviewer = async (req) => {
                 exit: 'provider-error',
             },
             durationMs,
-        };
+        );
     }
     const firstLine = (text.trim().split('\n')[0] ?? '').trim().toUpperCase();
     const accepted = firstLine === 'ACCEPTED' && req.result.success;
@@ -180,29 +181,56 @@ export interface DispatchConfig {
     charterOf: (agentId: string) => string;
 }
 
-/** Record a trace span for a worker or reviewer turn (best-effort). */
+/** Typed telemetry-bearing error for reviewer infrastructure failures.
+ *  Carries the span envelope without being mistaken for a CEO verdict. */
+class ReviewerTelemetryError extends Error {
+    constructor(
+        message: string,
+        public readonly telemetry: TurnTelemetry,
+        public readonly durationMs: number,
+    ) {
+        super(message);
+        this.name = 'ReviewerTelemetryError';
+    }
+}
+
+/** Record a trace span for a worker or reviewer turn (best-effort).
+ *  Writes only when config.record.enabled=true and not in bench mode. */
 async function recordDispatchSpan(
     kind: 'worker' | 'reviewer',
-    req: { agentId: string; taskRef: string; attempt: number },
-    outcome: { content: string; success?: boolean; durationMs?: number; telemetry?: TurnTelemetry },
+    req: { agentId: string; taskRef: string; attempt: number; spec?: string },
+    outcome: { content: string; success?: boolean; durationMs?: number; toolsUsed?: string[]; telemetry?: TurnTelemetry },
 ): Promise<void> {
     try {
-        const { recordSpan } = await import('../telemetry/traceStore.js');
+        if (isBenchMode()) return;
+        const cfg = loadConfig();
+        if (!cfg.record?.enabled) return;
+        const { recordSpanRecord } = await import('../telemetry/traceStore.js');
         const t = outcome.telemetry;
-        recordSpan({
+        const actionId = t?.actionId ?? 'no-action';
+        const span: any = {
             sessionId: `${req.agentId}:${req.taskRef}:${req.attempt}`,
-            runId: t?.actionId,
+            runId: actionId,
             startedAt: new Date(Date.now() - (outcome.durationMs ?? 0)).toISOString(),
             durationMs: outcome.durationMs ?? 0,
             model: t?.model ?? 'unknown',
-            input: `${kind} turn for ${req.taskRef} attempt ${req.attempt}`.slice(0, 500),
+            input: (req.spec ?? `${kind} turn for ${req.taskRef} attempt ${req.attempt}`).slice(0, 500),
             output: (outcome.content ?? '').slice(0, 1000),
-            toolsUsed: [],
+            toolsUsed: outcome.toolsUsed ?? [],
             promptTokens: t?.promptTokens ?? 0,
             completionTokens: t?.completionTokens ?? 0,
             costUsd: t?.costUsd ?? 0,
             ok: outcome.success ?? false,
-        });
+            // v8 Slice 3 join keys
+            actionId,
+            taskRef: req.taskRef,
+            attempt: req.attempt,
+            agentId: req.agentId,
+            role: kind,
+            usageMeasured: t?.measured === true,
+            exit: t?.exit ?? 'unknown',
+        };
+        recordSpanRecord(span);
     } catch { /* trace recording is best-effort */ }
 }
 
@@ -431,7 +459,7 @@ export class CompanyDispatch {
                 success: false, toolsUsed: [],
             };
         }
-        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt }, outcome);
+        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, outcome);
 
         const ownerKeys = loadAgentKeys(f.owner, this.keysDir);
         const result = this.log.append({
@@ -464,27 +492,45 @@ export class CompanyDispatch {
         try {
             review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
         } catch (err) {
-            review = { verdict: 'needs-work', note: `Review failed: ${err instanceof Error ? err.message : String(err)}` };
+            const isReviewerErr = err instanceof ReviewerTelemetryError;
+            const note = isReviewerErr ? err.message : `Review failed: ${err instanceof Error ? err.message : String(err)}`;
+            const telemetry = isReviewerErr ? err.telemetry : {
+                actionId: 'reviewer-error',
+                promptTokens: 0,
+                completionTokens: 0,
+                costUsd: 0,
+                measured: false,
+                providerCalls: 1,
+                returnedCalls: 0,
+                exit: 'provider-error' as const,
+            };
+            await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, {
+                content: note,
+                success: false,
+                durationMs: isReviewerErr ? err.durationMs : undefined,
+                telemetry,
+            });
+            throw err;
         }
-        if (!outcome.success && attempt >= this.maxAttempts) {
-            review = {
+        const finalReview: ReviewOutcome = (!outcome.success && attempt >= this.maxAttempts)
+            ? {
                 verdict: 'needs-work',
                 note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300),
                 telemetry: review.telemetry,
                 durationMs: review.durationMs,
-            };
-        }
-        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt }, {
-            content: review.note,
-            success: review.verdict === 'accepted',
-            durationMs: review.durationMs,
-            telemetry: review.telemetry,
+            }
+            : review;
+        await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, {
+            content: finalReview.note,
+            success: finalReview.verdict === 'accepted',
+            durationMs: finalReview.durationMs,
+            telemetry: finalReview.telemetry,
         });
 
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
         this.log.append({
             kind: 'task.checked', actor: 'ceo',
-            payload: { taskRef: task.taskRef, resultRef: result.id, verdict: review.verdict, note: review.note, attempt },
+            payload: { taskRef: task.taskRef, resultRef: result.id, verdict: finalReview.verdict, note: finalReview.note, attempt },
         }, ceoKeys.privateKey);
     }
 
@@ -519,25 +565,48 @@ export class CompanyDispatch {
             retryTask(this.log, this.keysDir, f.taskRef, 'failure-retry');
             return;
         }
-        let review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
-        if (!outcome.success && attempt >= this.maxAttempts) {
-            review = {
+        let review: ReviewOutcome;
+        try {
+            review = await this.reviewer({ spec, agentId: f.owner, result: outcome });
+        } catch (err) {
+            const isReviewerErr = err instanceof ReviewerTelemetryError;
+            const note = isReviewerErr ? err.message : `Review failed: ${err instanceof Error ? err.message : String(err)}`;
+            const telemetry = isReviewerErr ? err.telemetry : {
+                actionId: 'reviewer-error',
+                promptTokens: 0,
+                completionTokens: 0,
+                costUsd: 0,
+                measured: false,
+                providerCalls: 1,
+                returnedCalls: 0,
+                exit: 'provider-error' as const,
+            };
+            await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: f.taskRef, attempt }, {
+                content: note,
+                success: false,
+                durationMs: isReviewerErr ? err.durationMs : undefined,
+                telemetry,
+            });
+            throw err;
+        }
+        const finalReview: ReviewOutcome = (!outcome.success && attempt >= this.maxAttempts)
+            ? {
                 verdict: 'needs-work',
                 note: `attempts exhausted (${attempt}/${this.maxAttempts}); ${review.note}`.slice(0, 300),
                 telemetry: review.telemetry,
                 durationMs: review.durationMs,
-            };
-        }
+            }
+            : review;
         await recordDispatchSpan('reviewer', { agentId: f.owner, taskRef: f.taskRef, attempt }, {
-            content: review.note,
-            success: review.verdict === 'accepted',
-            durationMs: review.durationMs,
-            telemetry: review.telemetry,
+            content: finalReview.note,
+            success: finalReview.verdict === 'accepted',
+            durationMs: finalReview.durationMs,
+            telemetry: finalReview.telemetry,
         });
         const ceoKeys = loadAgentKeys('ceo', this.keysDir);
         this.log.append({
             kind: 'task.checked', actor: 'ceo',
-            payload: { taskRef: f.taskRef, resultRef: resultEvent.id, verdict: review.verdict, note: review.note, attempt },
+            payload: { taskRef: f.taskRef, resultRef: resultEvent.id, verdict: finalReview.verdict, note: finalReview.note, attempt },
         }, ceoKeys.privateKey);
     }
 

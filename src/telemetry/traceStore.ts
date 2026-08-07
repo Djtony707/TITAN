@@ -9,7 +9,7 @@
  * `summarizeTraces()` and `toOTel()` are PURE (take a spans array) for tests;
  * `recordSpan()`/`listSpans()` are the file-backed surface.
  */
-import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, unlinkSync, cpSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import logger from '../utils/logger.js';
@@ -43,7 +43,8 @@ function titanHome(): string {
     return join(homedir(), '.titan');
 }
 function spansPath(): string { return join(titanHome(), 'traces', 'spans.jsonl'); }
-function archiveDir(): string { return join(titanHome(), 'traces', 'archive'); }
+/** v8 Slice 3 — append-only record trace sink for audit/replay joins. */
+function recordSpansPath(): string { return join(titanHome(), 'traces', 'record', 'spans.jsonl'); }
 
 let _seq = 0;
 function nextId(startedAt: string): string {
@@ -53,21 +54,17 @@ function nextId(startedAt: string): string {
     return `sp_${startedAt.replace(/[^0-9]/g, '').slice(0, 17)}_${_seq.toString(36)}`;
 }
 
-/** Archive the current spans.jsonl to a timestamped file; best-effort. */
-export function recordSpanArchive(reason = 'rotation'): string | null {
-    const src = spansPath();
-    if (!existsSync(src)) return null;
-    const dir = archiveDir();
+/** Append a span to the v8 Slice 3 record sink. Append-only; the legacy
+ *  spans.jsonl is never touched. Best-effort. */
+export function recordSpanRecord(span: Omit<TraceSpan, 'id'>): TraceSpan | null {
+    const full: TraceSpan = { ...span, id: nextId(span.startedAt) };
     try {
-        mkdirSync(dir, { recursive: true });
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const dest = join(dir, `spans-${stamp}-${reason}.jsonl`);
-        cpSync(src, dest, { force: true });
-        // After archival, start a fresh spans file so the live store stays bounded.
-        try { writeFileSync(src, '', 'utf-8'); } catch { /* best effort */ }
-        return dest;
+        const path = recordSpansPath();
+        mkdirSync(join(path, '..'), { recursive: true });
+        appendFileSync(path, JSON.stringify(full) + '\n', 'utf-8');
+        return full;
     } catch (e) {
-        logger.debug(COMPONENT, `Failed to archive spans: ${(e as Error).message}`);
+        logger.debug(COMPONENT, `Failed to record span to record sink: ${(e as Error).message}`);
         return null;
     }
 }
@@ -171,9 +168,28 @@ export function toOTel(spans: TraceSpan[]): Record<string, unknown> {
     };
 }
 
-/** Test helper. */
+/** Read record spans back (newest first). */
+export function listRecordSpans(opts: { sessionId?: string; limit?: number } = {}): TraceSpan[] {
+    const path = recordSpansPath();
+    if (!existsSync(path)) return [];
+    let lines: string[];
+    try { lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean); } catch { return []; }
+    const spans: TraceSpan[] = [];
+    for (const line of lines) {
+        try { spans.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
+    }
+    spans.reverse();
+    const filtered = opts.sessionId ? spans.filter((s) => s.sessionId === opts.sessionId) : spans;
+    return opts.limit ? filtered.slice(0, opts.limit) : filtered;
+}
+
+/** Test helpers. */
 export function __resetTracesForTests(): void {
     const path = spansPath();
     if (existsSync(path)) { try { unlinkSync(path); } catch { /* fine */ } }
     _seq = 0;
+}
+export function __resetRecordTracesForTests(): void {
+    const path = recordSpansPath();
+    if (existsSync(path)) { try { unlinkSync(path); } catch { /* fine */ } }
 }

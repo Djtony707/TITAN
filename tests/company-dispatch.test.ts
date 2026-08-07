@@ -588,21 +588,29 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(res.telemetry!.costUsd).toBeGreaterThan(0);
     });
 
-    it('#16 productionReviewer marks failed chat as provider-error telemetry', async () => {
+    it('#16 productionReviewer throws a telemetry-bearing error on failed chat', async () => {
         chatMock.mockReset();
         chatMock.mockRejectedValueOnce(new Error('review model offline'));
-        const res = await productionReviewer({
-            spec: 's',
-            agentId: 'scout',
-            result: { content: 'done', success: true, toolsUsed: [] },
-        });
-        expect(res.verdict).toBe('needs-work');
-        expect(res.telemetry).toMatchObject({
+        let caught: unknown;
+        try {
+            await productionReviewer({
+                spec: 's',
+                agentId: 'scout',
+                result: { content: 'done', success: true, toolsUsed: [] },
+            });
+        } catch (err) {
+            caught = err;
+        }
+        expect(caught).toBeInstanceOf(Error);
+        const err = caught as Error;
+        expect(err.message).toContain('review model offline');
+        expect((err as any).telemetry).toMatchObject({
             providerCalls: 1,
             returnedCalls: 0,
             measured: false,
             exit: 'provider-error',
         });
+        expect(typeof (err as any).durationMs).toBe('number');
     });
 
     it('#4 parseSafeInt: full-string parse rejects junk suffixes', () => {
