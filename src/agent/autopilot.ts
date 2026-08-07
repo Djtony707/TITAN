@@ -348,6 +348,11 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
             return await runAutoresearchAutopilot(config, startTime, dryRun);
         }
 
+        // ── Recognize mode: nightly task-pattern clustering (v8 Slice 4) ──
+        if (autopilotMode === 'recognize') {
+            return await runRecognizeAutopilot(config, startTime, dryRun);
+        }
+
         // Get previous run summary for context
         const history = getRunHistory(1);
         const prevSummary = history.length > 0 ? history[history.length - 1].summary : undefined;
@@ -822,6 +827,84 @@ async function deliverResult(config: TitanConfig, run: AutopilotRun): Promise<bo
 }
 
 // ─── Init / Stop ────────────────────────────────────────────────
+
+// ─── Recognize autopilot (v8 Slice 4) ──────────────────────────────
+
+async function runRecognizeAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
+    logger.info(COMPONENT, 'RECOGNIZE autopilot: running nightly task-pattern clustering');
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: 'Dry-run: would run RECOGNIZE clustering on recent task trajectories.',
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
+
+    try {
+        const { runNightlyClustering } = await import('./recognizeCluster.js');
+        const result = runNightlyClustering();
+
+        const duration = Date.now() - startTime;
+        const summary = [
+            `RECOGNIZE: ${result.clusters.length} clusters from ${result.trajectoryCount} trajectories`,
+            result.newClusters.length > 0
+                ? `${result.newClusters.length} new clusters: ${result.newClusters.map(c => c.signature.intent).join(', ')}`
+                : 'No new clusters',
+            result.clusters.length > 0
+                ? `Top: ${result.clusters[0].signature.intent} (score ${result.clusters[0].score}, ${result.clusters[0].frequency}x)`
+                : '',
+        ].filter(Boolean).join('\n');
+
+        const classification = result.newClusters.length > 0 ? 'notable' : 'ok';
+
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification,
+            summary: summary.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+
+        let delivered = false;
+        if (classification !== 'ok') {
+            delivered = await deliverResult(config, run);
+        }
+
+        logger.info(COMPONENT, `RECOGNIZE autopilot complete: ${classification} (${duration}ms)`);
+        return { run, delivered };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'urgent',
+            summary: `RECOGNIZE error: ${(error as Error).message}`,
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        return { run, delivered: false };
+    }
+}
 
 export function initAutopilot(config: TitanConfig): void {
     if (!config.autopilot.enabled) {
