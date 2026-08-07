@@ -41,6 +41,25 @@ vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// ── Import-contract mocks: record if forbidden modules are ever imported ──
+let { wasRecipeRegistryImported, wasRecipeCompilerImported, wasPromotionImported } = vi.hoisted(() => ({
+    wasRecipeRegistryImported: false,
+    wasRecipeCompilerImported: false,
+    wasPromotionImported: false,
+}));
+vi.mock('../src/agent/recipeRegistry.js', () => {
+    wasRecipeRegistryImported = true;
+    return {};
+});
+vi.mock('../src/agent/recipeCompiler.js', () => {
+    wasRecipeCompilerImported = true;
+    return {};
+});
+vi.mock('../src/agent/promotion.js', () => {
+    wasPromotionImported = true;
+    return {};
+});
+
 const ROOT = mkdtempSync(join(tmpdir(), 'titan-slice5-gate-'));
 afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
 
@@ -118,31 +137,19 @@ describe('v8 slice 5 — flag-off invariant (existing modules)', () => {
     });
 
     it('#5 flag-off: no promotion/compiler modules are imported (import contract)', async () => {
-        // Import the v7 surface modules
+        // The mocks at the top of this file record if any forbidden module is
+        // ever imported. Import the v7 surface — if it pulls in any of them,
+        // the corresponding flag becomes true and this test FAILS.
         await import('../src/recipes/store.js');
         await import('../src/recipes/runner.js');
         await import('../src/skills/registry.js');
         await import('../src/agent/muscleMemory.js');
 
-        // These modules must NOT exist or be importable when selfCompiling is off.
-        // If they exist, they must not have been imported transitively.
-        const forbiddenModules = [
-            '../src/agent/recipeRegistry.js',
-            '../src/agent/recipeCompiler.js',
-            '../src/agent/promotion.js',
-        ];
-        for (const mod of forbiddenModules) {
-            try {
-                await import(mod);
-                // If the module exists, it must not have been imported by the
-                // v7 surface. We check that by verifying no side effects.
-                // The real test: the module's exports must not be in the
-                // module cache from the v7 imports above.
-            } catch {
-                // Module doesn't exist yet — implementers will create it.
-            }
-        }
-        expect(true).toBe(true);
+        // PROOF: delete or comment out the flag guard that prevents the
+        // promotion/compiler imports. This test will go RED.
+        expect(wasRecipeRegistryImported).toBe(false);
+        expect(wasRecipeCompilerImported).toBe(false);
+        expect(wasPromotionImported).toBe(false);
     });
 });
 
@@ -523,31 +530,13 @@ describe('v8 slice 5 — measured-only rule', () => {
         expect(stats.projectedTotalSavings).toBeUndefined();
     });
 
-    it('#24 shadow comparison is a binary equivalence check, not a confidence score', () => {
-        // Contract: recordShadowComparison takes a boolean ,
-        // not a float confidence. The eval harness produces a binary
-        // verdict — the recipe's output either matches the frontier
-        // path's output or it doesn't. No confidence estimates.
+    it.todo('#24 shadow comparison is a binary equivalence check, not a confidence score — '
+        + 'activate when recipeRegistry exists: import it and verify recordShadowComparison '
+        + 'signature is (id: string, equivalent: boolean): void, not (id: string, confidence: number)');
 
-        // This is verified by the function signature:
-        // recordShadowComparison(id: string, equivalent: boolean): void
-        // The second parameter is boolean, not number.
-        expect(true).toBe(true); // type-level contract
-    });
-
-    it('#25 promotion gate thresholds are constants, not estimated thresholds', () => {
-        // Contract: SHADOW_MIN_COMPARISONS and SHADOW_MIN_SUCCESS_RATE
-        // are hardcoded constants, not dynamically estimated thresholds.
-        // SHADOW_MIN_SUCCESS_RATE = 1.0 (zero-false-positive bar).
-
-        // The implementer must export these as const:
-        // export const SHADOW_MIN_COMPARISONS = 3;
-        // export const SHADOW_MIN_SUCCESS_RATE = 1.0;
-
-        // Verify the contract: these are constants, not functions
-        // that estimate thresholds from data.
-        expect(true).toBe(true); // type-level contract
-    });
+    it.todo('#25 promotion gate thresholds are constants, not estimated thresholds — '
+        + 'activate when recipeRegistry exists: import it and verify SHADOW_MIN_COMPARISONS '
+        + 'and SHADOW_MIN_SUCCESS_RATE are exported as const (3 and 1.0), not functions');
 });
 
 // ═══════════════════════════════════════════════════════════════════
