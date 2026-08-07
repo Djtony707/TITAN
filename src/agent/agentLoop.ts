@@ -863,8 +863,10 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // 'replay' short-circuits the loop here; 'confirm-required' falls
     // through to the frontier path until the bound-approval executor lands
     // (safe: falling through is today's behavior for every message).
+    // Gated behind config.selfCompiling.route (default off): flag-off is
+    // byte-identical to v7 — no registry read, no signature compute, no log line.
     // With an empty registry this is a cheap constant-time miss.
-    if (ctx.message && !ctx.voiceFastPath) {
+    if (ctx.config.selfCompiling?.route && ctx.message && !ctx.voiceFastPath) {
         try {
             const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
             if (routeDecision.kind === 'replay') {

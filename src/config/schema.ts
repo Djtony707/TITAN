@@ -1286,6 +1286,28 @@ export const TitanConfigSchema = z.object({
         enabled: z.boolean().default(false),
     }).default({}),
 
+    /**
+     * v8 Self-Compiling Agent (Slices 4–6: Recognize → Compile → Route).
+     * Master switch for the three-stage recipe loop. When disabled (default),
+     * the agent loop is byte-identical to v7: no trace persistence, no recipe
+     * registry, no router middleware, no extra log lines. When enabled, the
+     * TraceStore (Stage 1: RECORD) writes completed traces, the Recognizer
+     * clusters them into recipes, and the Router short-circuits exact matches
+     * with zero frontier-model calls. Default off — 53,766 installs must not
+     * see behavior change. See V8_SLICE6_DESIGN.md.
+     */
+    selfCompiling: z.object({
+        /** Master switch. Default off = v7 byte-identical behavior. */
+        enabled: z.boolean().default(false),
+        /** Stage 1 (RECORD): persist completed traces to disk. Implies
+         *  `enabled`; safe to set true while the rest stays off. */
+        record: z.boolean().default(false),
+        /** Stage 5 (ROUTE): router middleware at the loop head. Implies
+         *  `enabled`; the registry is empty by default so this is a
+         *  constant-time miss until recipes are compiled. */
+        route: z.boolean().default(false),
+    }).default({}),
+
     company: z.object({
         /** Master switch for the v8 company layer. Default off. */
         enabled: z.boolean().default(false),

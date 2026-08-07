@@ -1222,7 +1222,11 @@ export async function processMessage(
     }
     // v8 TraceStore (Stage 1: RECORD) — idempotent; persists every completed
     // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
-    ensureTracePersistence();
+    // Gated behind config.selfCompiling.record (default off) so flag-off is
+    // byte-identical to v7: no trace file is created, no observer is subscribed.
+    if (config.selfCompiling?.record) {
+        ensureTracePersistence();
+    }
     const trace = startTrace(session.id, message);
     // v4.4.5: accept a caller-provided strategy override. Phone calls
     // force 'direct' so vague conversational questions like "what are
