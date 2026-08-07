@@ -47,10 +47,8 @@ function scenario(opts: { queueOn?: boolean; noValidator?: boolean } = {}): S {
     const scout = mintAgentKeys('scout', keysDir);
     const watchman = mintAgentKeys('watchman', keysDir);
     const queueOn = opts.queueOn ?? true;
-    const log = new CompanyLog(dbPath, keysDir, queueOn ? {
-        appendableKinds: KNOWN_KINDS,
-        validator: opts.noValidator ? undefined : queueValidator,
-    } : {});
+    const log = new CompanyLog(dbPath, keysDir,
+        opts.noValidator ? {} : (queueOn ? { appendableKinds: KNOWN_KINDS, validator: queueValidator } : {}));
     return { log, keysDir, dbPath, user, ceo, scout, watchman };
 }
 function delegate(s: S, to = 'scout', spec = 'work'): CompanyEvent {
@@ -128,7 +126,9 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         expect(() => s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.ceo.privateKey)).toThrow(/E_NO_RESULT/);
         // same append WITHOUT capability by user also rejected
         expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
-        const ev = s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', note: 'discarded on queue downgrade', attempt: 1 } }, s.user.privateKey, { capability: 'maintenance' });
+        const ev = s.log.maintenance(() =>
+            s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', note: 'discarded on queue downgrade', attempt: 1 } }, s.user.privateKey),
+        );
         expect(ev.kind).toBe('task.checked');
         // blocked gate on a second task
         const d2 = delegate(s);
@@ -156,25 +156,68 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
         s.log.close();
     });
 
-    it('watchman stalled-block auto-clear: exact evidence schema, all five rejection classes', () => {
+    it('watchman stalled-block auto-clear: five INDEPENDENT rejection classes + valid acceptance', () => {
         const s = scenario();
-        const d = delegate(s);
-        start(s, d.id, 1);
-        const preBlockResultTask = delegate(s, 'scout', 'other'); // for cross-task evidence
-        const blk = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled' } }, s.watchman.privateKey);
-        const clear = (evidenceRef: string) =>
-            s.log.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef: blk.id, reason: 'progress-observed', evidenceRef } }, s.watchman.privateKey);
-        expect(() => clear('forged-id')).toThrow(/E_EVIDENCE/);                       // forged ref
-        expect(() => clear(preBlockResultTask.id)).toThrow(/E_EVIDENCE/);            // wrong kind (delegated) / wrong task
-        expect(() => clear(d.id)).toThrow(/E_EVIDENCE/);                             // pre-block, non-result
-        const late = result(s, d.id, 1);                                             // valid post-block owner result
-        // wrong attempt: bump current attempt via retry after result? attempt currency: current is 1; craft wrong-attempt evidence via another task's result
-        const otherKeys = mintAgentKeys('scout', s.keysDir);
-        void otherKeys;
-        const ok = clear(late.id);                                                   // valid acceptance
+        mintAgentKeys('builder', s.keysDir);
+        const clear = (blockRef: string, evidenceRef: string) =>
+            s.log.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef, reason: 'progress-observed', evidenceRef } }, s.watchman.privateKey);
+
+        // (1) FORGED ref
+        const dA = delegate(s); start(s, dA.id, 1);
+        const blkA = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dA.id, reason: 'stalled' } }, s.watchman.privateKey);
+        expect(() => clear(blkA.id, 'no-such-event')).toThrow(/E_EVIDENCE.*requires evidenceRef|E_EVIDENCE/);
+
+        // (2) WRONG KIND: cite the block event itself (right task, not a result)
+        expect(() => clear(blkA.id, blkA.id)).toThrow(/evidence must be task.result exactly/);
+
+        // (3) WRONG TASK: post-block result of a DIFFERENT task — need lane free:
+        // late result for A first records (lane frees), then task B runs.
+        const lateA = result(s, dA.id, 1);
+        void lateA;
+        const dB = delegate(s, 'builder', 'other'); 
+        s.log.append({ kind: 'task.started', actor: 'builder', payload: { taskRef: dB.id, attempt: 1 } }, mintAgentKeys('builder', s.keysDir).privateKey);
+        const resB = s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: dB.id, attempt: 1, content: 'x', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
+        expect(() => clear(blkA.id, resB.id)).toThrow(/evidence taskRef mismatch/);
+
+        // (4) PRE-BLOCK evidence: new task, result lands BEFORE the block
+        const dC = delegate(s); start(s, dC.id, 1);
+        const preRes = result(s, dC.id, 1);
+        const blkC = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dC.id, reason: 'stalled' } }, s.watchman.privateKey);
+        expect(() => clear(blkC.id, preRes.id)).toThrow(/evidence predates the block/);
+        s.log.append({ kind: 'task.unblocked', actor: 'user', payload: { blockRef: blkC.id } }, s.user.privateKey);
+        s.log.append({ kind: 'task.checked', actor: 'ceo', payload: { taskRef: dC.id, verdict: 'accepted', attempt: 1 } }, s.ceo.privateKey);
+
+        // (5) WRONG ATTEMPT: task reaches attempt 2, blocked, cite the attempt-1 result
+        const dD = delegate(s); start(s, dD.id, 1);
+        const res1 = result(s, dD.id, 1);
+        s.log.append({ kind: 'task.retry', actor: 'user', payload: { taskRef: dD.id, attempt: 2, reason: 'failure-retry' } }, s.user.privateKey);
+        start(s, dD.id, 2);
+        const blkD = s.log.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: dD.id, reason: 'stalled' } }, s.watchman.privateKey);
+        expect(() => clear(blkD.id, res1.id)).toThrow(/not the current attempt/);
+        // VALID: post-block current-attempt owner result clears it
+        const res2 = result(s, dD.id, 2);
+        const ok = clear(blkD.id, res2.id);
         expect(ok.kind).toBe('task.unblocked');
         expect(s.log.verifyChain().ok).toBe(true);
         s.log.close();
+    });
+
+    it('NON-OWNER evidence rejected (constructed via slice-1-mode history, validated on reopen)', () => {
+        // Build a same-task result authored by a NON-owner in slice-1 mode
+        // (no queue validator exists there — the historical-shape loophole),
+        // then verify the queue validator rejects it as evidence.
+        const s = scenario({ noValidator: true }); // slice-1 mode log
+        mintAgentKeys('builder', s.keysDir);
+        const d = s.log.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey);
+        const foreign = s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d.id, attempt: 1, content: 'not mine', success: true } }, mintAgentKeys('builder', s.keysDir).privateKey);
+        s.log.close();
+        const q = new CompanyLog(s.dbPath, s.keysDir, { appendableKinds: KNOWN_KINDS, validator: queueValidator });
+        q.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d.id, attempt: 1 } }, s.scout.privateKey);
+        const blk = q.append({ kind: 'task.blocked', actor: 'watchman', payload: { taskRef: d.id, reason: 'stalled' } }, s.watchman.privateKey);
+        expect(() =>
+            q.append({ kind: 'task.unblocked', actor: 'watchman', payload: { blockRef: blk.id, reason: 'progress-observed', evidenceRef: foreign.id } }, s.watchman.privateKey),
+        ).toThrow(/not authored by the task owner|not the current attempt|predates/);
+        q.close();
     });
 
     it('commitments: owner opens; owner-or-user closes; refs validated', () => {
@@ -189,13 +232,56 @@ describe('slice 2 patch 1 — boundary validator on the DIRECT append surface', 
 });
 
 describe('slice 2 patch 1 — backstops and races', () => {
-    it('unique index rejects duplicate started(attempt) even with the validator bypassed', () => {
-        const s = scenario({ noValidator: true }); // simulated future bug: no validator installed
+    it('CONSTRUCTION INVARIANT: queue kinds appendable without the validator throws', () => {
+        const dir = join(ROOT, `inv-${++caseId}`);
+        mintAgentKeys('user', join(dir, 'keys'));
+        expect(() => new CompanyLog(join(dir, 'db'), join(dir, 'keys'), { appendableKinds: KNOWN_KINDS }))
+            .toThrow(/queue kinds cannot be appendable without the queue validator/);
+    });
+
+    it('MAINTENANCE is unforgeable via public append and unavailable on queue-off logs', () => {
+        const s = scenario();
+        const d = delegate(s);
+        // public append has NO capability parameter; the waiver is unreachable:
+        expect(() => s.log.append({ kind: 'task.checked', actor: 'user', payload: { taskRef: d.id, verdict: 'needs-work', attempt: 1 } }, s.user.privateKey)).toThrow(/E_NO_RESULT/);
+        s.log.close();
+        const off = new CompanyLog(s.dbPath, s.keysDir, {});
+        expect(() => off.maintenance(() => undefined)).toThrow(/maintenance requires a queue-validated instance/);
+        // and queue-off appends of slice-2 kinds stay rejected regardless
+        expect(() => off.append({ kind: 'hold.set', actor: 'user', payload: { scope: 'queue', reason: 'x' } }, mintAgentKeys('user', s.keysDir).privateKey)).toThrow(/not appendable/);
+        off.close();
+    });
+
+    it('unique-index backstop holds even against a RAW non-API writer', async () => {
+        const { DatabaseSync } = await import('node:sqlite');
+        const s = scenario();
         const d = delegate(s);
         start(s, d.id, 1);
-        expect(() => start(s, d.id, 1)).toThrow(/UNIQUE|constraint/i);
         s.log.close();
+        const raw = new DatabaseSync(s.dbPath);
+        expect(() =>
+            raw.prepare('INSERT INTO events (id, prev_hash, kind, ts, actor, sig, payload) VALUES (?, ?, ?, ?, ?, ?, ?)')
+                .run('raw-dup', 'x', 'task.started', Date.now(), 'scout', 'sig', JSON.stringify({ taskRef: d.id, attempt: 1 })),
+        ).toThrow(/UNIQUE|constraint/i);
+        raw.close();
     });
+
+    it('fold sees past 5,000 events: post-boundary delegation and hold are visible', () => {
+        const s = scenario({ noValidator: true }); // slice-1 mode: fast unvalidated room chatter
+        for (let i = 0; i < 5005; i++) {
+            s.log.append({ kind: 'room.message', actor: 'user', payload: { i } }, s.user.privateKey);
+        }
+        s.log.close();
+        const q = new CompanyLog(s.dbPath, s.keysDir, { appendableKinds: KNOWN_KINDS, validator: queueValidator });
+        const d = q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'late' } }, s.user.privateKey);
+        const h = q.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: 'queue', reason: 'late-hold' } }, s.watchman.privateKey);
+        const f = foldQueue(q.readAll());
+        expect(f.tasks.get(d.id)?.state).toBe('queued');       // post-5000 task visible
+        expect(f.activeHolds.has(h.id)).toBe(true);            // post-5000 hold visible
+        // and the validator SEES the late hold: delegation now refused
+        expect(() => q.append({ kind: 'task.delegated', actor: 'user', payload: { from: 'user', to: 'scout', spec: 'x' } }, s.user.privateKey)).toThrow(/E_HELD/);
+        q.close();
+    }, 120000);
 
     it('REAL multi-process double-start: exactly one task.started lands', async () => {
         const { execFile } = await import('child_process');

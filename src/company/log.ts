@@ -74,7 +74,10 @@ export interface CompanyLogOptions {
     /** Capability set: kinds appendable through this instance.
      *  Default: slice-1 kinds only (queue off). knownKinds always decode. */
     appendableKinds?: readonly CompanyEventKind[];
-    /** Mandatory validator for governed kinds; runs inside the append txn. */
+    /** Mandatory validator for governed kinds; runs inside the append txn.
+     *  INVARIANT (review event 8a2b8b01 #1): construction with any queue
+     *  kind appendable and no validator THROWS — there is no public way to
+     *  build a queue-capable, unvalidated instance. */
     validator?: LifecycleValidator;
 }
 
@@ -152,11 +155,17 @@ export class CompanyLog {
 
     private appendable: ReadonlySet<string>;
     private validator?: LifecycleValidator;
+    /** Private capability flag — settable ONLY by maintenance(); never caller data. */
+    private inMaintenance = false;
 
     constructor(dbPath: string, keysDir: string, opts: CompanyLogOptions = {}) {
         this.keysDir = keysDir;
         this.appendable = new Set(opts.appendableKinds ?? EVENT_KINDS);
         this.validator = opts.validator;
+        const queueKinds = new Set<string>(QUEUE_KINDS);
+        if (!this.validator && [...this.appendable].some(k => queueKinds.has(k))) {
+            throw new Error('CompanyLog: queue kinds cannot be appendable without the queue validator installed');
+        }
         mkdirSync(dirname(dbPath), { recursive: true });
         this.db = new DatabaseSync(dbPath);
         this.db.exec(`
@@ -197,12 +206,12 @@ export class CompanyLog {
      * Append one signed event. The private key must belong to input.actor's
      * registered identity, and the actor must hold authority for the kind.
      */
-    append(input: AppendInput, privateKey: KeyObject, opts: { capability?: 'maintenance' } = {}): CompanyEvent {
+    append(input: AppendInput, privateKey: KeyObject): CompanyEvent {
         assertValidAgentId(input.actor);
         if (!(KNOWN_KINDS as readonly string[]).includes(input.kind)) {
             throw new Error(`CompanyLog: unknown event kind "${input.kind}"`);
         }
-        if (!this.appendable.has(input.kind) && opts.capability !== 'maintenance') {
+        if (!this.appendable.has(input.kind)) {
             throw new Error(`CompanyLog: kind "${input.kind}" is not appendable under current capabilities`);
         }
         const allowed = AUTHORITY[input.kind];
@@ -222,15 +231,19 @@ export class CompanyLog {
         const id = randomUUID();
         // v5 §2: write lock BEFORE the tail read — fold/validate/append is one
         // transaction; concurrent processes serialize on BEGIN IMMEDIATE.
-        this.db.exec('BEGIN IMMEDIATE');
+        // Inside maintenance(), the OUTER transaction owns BEGIN/COMMIT.
+        const ownTxn = !this.inMaintenance;
+        if (ownTxn) this.db.exec('BEGIN IMMEDIATE');
         let event: CompanyEvent;
         try {
             if (this.validator) {
-                const events = this.read({ limit: 5000 });
+                // Uncapped tail read (review #3): the authoritative fold must
+                // see FULL history — no 5,000-row truncation.
+                const events = this.readAll();
                 this.validator({
                     kind: input.kind, actor: input.actor,
                     payload: input.payload ?? {}, events,
-                    capability: opts.capability,
+                    capability: this.inMaintenance ? 'maintenance' : undefined,
                 });
             }
             const prevHash = chainHash(this.lastRow());
@@ -241,9 +254,9 @@ export class CompanyLog {
                 .run(id, prevHash, input.kind, ts, input.actor, sig, payloadJson);
             const row = this.db.prepare('SELECT * FROM events WHERE id = ?').get(id) as unknown as Row;
             event = rowToEvent(row);
-            this.db.exec('COMMIT');
+            if (ownTxn) this.db.exec('COMMIT');
         } catch (err) {
-            try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ }
+            if (ownTxn) { try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ } }
             throw err;
         }
         // Guarded publish on the SHARED emitter (substrate emit swallows
@@ -301,6 +314,40 @@ export class CompanyLog {
             prev = row;
         }
         return { ok: true };
+    }
+
+    /** Uncapped full-history read in seq order (fold/verify use). */
+    readAll(): CompanyEvent[] {
+        const rows = this.db.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
+        return rows.map(rowToEvent);
+    }
+
+    /**
+     * Unforgeable maintenance capability (review event 8a2b8b01 #2): the ONLY
+     * way appends run with the maintenance waiver. Requires a queue-validated
+     * instance (a queue-off log cannot host maintenance), wraps fn in ONE
+     * atomic transaction (v5 §3b), and sets a PRIVATE flag the validator
+     * reads — public append() carries no capability parameter to forge.
+     * Appends inside fn must still be slice-2-appendable via this instance
+     * and are validated per event with capability='maintenance'.
+     */
+    maintenance<T>(fn: () => T): T {
+        if (!this.validator) {
+            throw new Error('CompanyLog: maintenance requires a queue-validated instance');
+        }
+        if (this.inMaintenance) throw new Error('CompanyLog: maintenance cannot nest');
+        this.db.exec('BEGIN IMMEDIATE');
+        this.inMaintenance = true;
+        try {
+            const out = fn();
+            this.db.exec('COMMIT');
+            return out;
+        } catch (err) {
+            try { this.db.exec('ROLLBACK'); } catch { /* not in txn */ }
+            throw err;
+        } finally {
+            this.inMaintenance = false;
+        }
     }
 
     /** Total number of events (cheap health/consistency probe). */

@@ -50,6 +50,8 @@ export interface TaskFold {
     attempt: number;
     /** attempt numbers that already have a result. */
     resultedAttempts: Set<number>;
+    /** attempt numbers that have a task.started event. */
+    startedAttempts: Set<number>;
     /** blockRef → { setter, reason, seq } for UNCLEARED blocks. */
     activeBlocks: Map<string, { setter: string; reason: string; seq: number }>;
     checked: boolean;
@@ -82,17 +84,29 @@ export function foldQueue(events: readonly CompanyEvent[]): QueueFold {
                 fold.tasks.set(e.id, {
                     taskRef: e.id, owner: String(p.to ?? ''), delegatedSeq: e.seq,
                     state: 'queued', attempt: 0, resultedAttempts: new Set(),
-                    activeBlocks: new Map(), checked: false,
+                    startedAttempts: new Set(), activeBlocks: new Map(), checked: false,
                 });
                 break;
             case 'task.started': {
                 const t = taskRef ? fold.tasks.get(taskRef) : undefined;
-                if (t) { t.attempt = Math.max(t.attempt, eventAttempt(e)); if (t.state !== 'blocked') t.state = 'started'; fold.runningTask = t.taskRef; }
+                if (t) {
+                    const a = eventAttempt(e);
+                    t.attempt = Math.max(t.attempt, a);
+                    t.startedAttempts.add(a);
+                    if (t.state !== 'blocked') t.state = 'started';
+                    fold.runningTask = t.taskRef;
+                }
                 break;
             }
             case 'task.retry': {
+                // A declared-but-unstarted retry makes the task DISPATCHABLE
+                // again (review event 8a2b8b01 #4) — state returns to queued.
                 const t = taskRef ? fold.tasks.get(taskRef) : undefined;
-                if (t) t.attempt = Math.max(t.attempt, eventAttempt(e));
+                if (t) {
+                    t.attempt = Math.max(t.attempt, eventAttempt(e));
+                    if (t.state !== 'blocked') t.state = 'queued';
+                    if (fold.runningTask === t.taskRef) fold.runningTask = undefined;
+                }
                 break;
             }
             case 'task.result': {

@@ -16,7 +16,8 @@ import { loadAgentKeys } from './keys.js';
 const RACE_RETRIES = 3;
 
 function fold(log: CompanyLog): QueueFold {
-    return foldQueue(log.read({ limit: 5000 }));
+    // Uncapped (review #3): the fold must see full history.
+    return foldQueue(log.readAll());
 }
 
 function withRaceRetry<T>(fn: () => T): T {
@@ -38,8 +39,10 @@ export function nextDispatchable(f: QueueFold): TaskFold | undefined {
     if (f.runningTask) return undefined;
     for (const h of f.activeHolds.values()) if (h.scope === 'queue') return undefined;
     const candidates = [...f.tasks.values()]
-        .filter(t => !t.checked && t.activeBlocks.size === 0 && !t.resultedAttempts.has(t.attempt || -1))
-        .filter(t => t.state === 'queued' || (t.state === 'started' && t.attempt === 0))
+        // Dispatchable: never started (attempt 0), or a declared attempt that
+        // has no task.started yet (crash-resume / failure-retry) — review #4.
+        .filter(t => !t.checked && t.activeBlocks.size === 0)
+        .filter(t => t.attempt === 0 || !t.startedAttempts.has(t.attempt))
         .filter(t => ![...f.activeHolds.values()].some(h => h.scope === t.taskRef))
         .sort((a, b) => a.delegatedSeq - b.delegatedSeq);
     return candidates[0];
