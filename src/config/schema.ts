@@ -685,6 +685,12 @@ export const TitanConfigSchema = z.object({
         /** Replay-verify drafts through the eval harness before proposing (the trust layer). */
         verifyBeforePropose: z.boolean().default(true),
     }).default({}),
+    /** v8 Slice 1 — the Company Layer. Default OFF: with `enabled: false` the
+     *  gateway boots byte-identical v7 (no DB created, no routes mounted, no
+     *  UI tab). Everything company-related keys off this flag. */
+    company: z.object({
+        enabled: z.boolean().default(false),
+    }).default({}),
     selfMod: SelfModConfigSchema.default({}),
     homelab: HomelabConfigSchema.default({}),
     telephony: TelephonyConfigSchema,
