@@ -17,6 +17,7 @@ import {
     registerRecipe,
     retire,
     SHADOW_MIN_COMPARISONS,
+    type ShadowRunOutput,
 } from '../src/agent/recipeRegistry.js';
 import { persistTrace, type PersistedTrace } from '../src/agent/traceStore.js';
 import { escalateOnFailure, renderReplayResult, routeCompiled } from '../src/agent/routerMiddleware.js';
@@ -67,9 +68,20 @@ function activateRecipe(trace: PersistedTrace): CompiledRecipe {
     const recipe = compileRecipe(trace);
     registerRecipe(recipe);
     promoteToShadow(recipe.id);
-    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, true);
+    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, matchingRuns());
     activate(recipe.id);
     return getEntry(recipe.id)!.recipe;
+}
+
+/** Build a ShadowRunOutput where both sides are byte-identical (default
+ *  comparator returns true). */
+function matchingRuns(content = 'ok'): ShadowRunOutput {
+    return { recipe: [{ name: 'read_file', content }], frontier: [{ name: 'read_file', content }] };
+}
+
+/** Build a ShadowRunOutput where the two sides differ (comparator returns false). */
+function mismatchedRuns(): ShadowRunOutput {
+    return { recipe: [{ name: 'read_file', content: 'ok' }], frontier: [{ name: 'read_file', content: 'DIFFERENT' }] };
 }
 
 // ── Registry: state machine + gate ───────────────────────────────────────
@@ -106,12 +118,12 @@ describe('recipeRegistry', () => {
         registerRecipe(recipe);
         promoteToShadow(recipe.id);
 
-        recordShadowComparison(recipe.id, true);
-        recordShadowComparison(recipe.id, true);
+        recordShadowComparison(recipe.id, matchingRuns());
+        recordShadowComparison(recipe.id, matchingRuns());
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
 
-        recordShadowComparison(recipe.id, false); // one mismatch kills it
-        recordShadowComparison(recipe.id, true);
+        recordShadowComparison(recipe.id, mismatchedRuns()); // one mismatch kills it
+        recordShadowComparison(recipe.id, matchingRuns());
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
     });
@@ -195,7 +207,7 @@ describe('routerMiddleware', () => {
         const b = compileRecipe(makeTrace({ traceId: 'trBBBBBB' }), { id: 'second-recipe' });
         registerRecipe(b);
         promoteToShadow(b.id);
-        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, true);
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, matchingRuns());
         activate(b.id);
 
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [a, getEntry(b.id)!.recipe] });

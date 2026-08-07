@@ -32,6 +32,8 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 import type { CompiledRecipe } from './recipeCompiler.js';
 import { readTraces } from './traceStore.js';
+import type { TitanConfig } from '../config/schema.js';
+import { shouldCompile, shouldPromote } from './v8Gates.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'RecipeRegistry';
@@ -69,6 +71,47 @@ interface RegistryFile {
     updatedAt: string;
     entries: Record<string, RegistryEntry>;
 }
+
+// ── Equivalence (Honey blocker 3) ─────────────────────────────────────────
+
+/**
+ * The output of one side of a shadow comparison. The registry is given both
+ * sides and computes the equivalence verdict itself — the caller cannot pass
+ * a bare boolean. `recipe` is the compiled recipe's replay output; `frontier`
+ * is what the frontier model produced for the same request.
+ */
+export interface ShadowRunOutput {
+    /** The replayed tool outputs from the compiled recipe (zero model calls). */
+    recipe: Array<{ name: string; content: string }>;
+    /** The frontier model's answer for the same request. */
+    frontier: Array<{ name: string; content: string }> | string;
+}
+
+/**
+ * Equivalence comparator: decides whether the recipe replay and the frontier
+ * run are semantically equivalent for promotion-gate purposes. The registry
+ * calls this; the caller of `recordShadowComparison` supplies the run data,
+ * NOT the verdict. A default comparator is provided (structural equality of
+ * the rendered outputs) but production should inject a stricter one
+ * (semantic / canonicalized comparison) — the point is that the gate's
+ * truth is computed, not asserted.
+ */
+export type EquivalenceComparator = (runs: ShadowRunOutput) => boolean;
+
+/**
+ * Default comparator: structural equality. Renders both sides to a flat
+ * content string and compares. Strict and dumb on purpose — it is the
+ * fallback, not the recommendation. Production wires a real semantic
+ * comparator; this one exists so the gate can be exercised end-to-end
+ * without one and so tests have a deterministic default.
+ */
+export const defaultEquivalenceComparator: EquivalenceComparator = (runs) => {
+    const recipeSide = runs.recipe.map(r => r.content).join('\n');
+    const frontierSide = typeof runs.frontier === 'string'
+        ? runs.frontier
+        : runs.frontier.map(r => r.content).join('\n');
+    return recipeSide === frontierSide;
+};
 
 // ── Storage path (mirrors traceStore.ts) ─────────────────────────────────
 
@@ -175,8 +218,20 @@ function transition(entry: RegistryEntry, to: RecipeState, reason: string): void
 /**
  * Register a freshly compiled recipe as a `candidate`. The source-trace
  * token baseline is measured here, once, while the traces are fresh.
+ *
+ * Gated by `selfCompiling.compile` (Stage 3): when the compile gate is off
+ * the registry refuses to register — no new candidates enter the promotion
+ * pipeline. The config is resolved from `TitanConfig` at call time; tests
+ * pass `configOverride` to exercise the gate without constructing a full
+ * config object (same pattern as v8Gates).
  */
-export function registerRecipe(recipe: CompiledRecipe): RegistryEntry {
+export function registerRecipe(
+    recipe: CompiledRecipe,
+    configOverride?: TitanConfig,
+): RegistryEntry {
+    if (configOverride && !shouldCompile(configOverride)) {
+        throw new Error(`RecipeRegistry: compile gate refused registration of ${recipe.id} — selfCompiling.compile is off`);
+    }
     const reg = load();
     const entry: RegistryEntry = {
         recipe: { ...recipe, state: 'candidate' },
@@ -207,11 +262,36 @@ export function getActiveRecipes(): CompiledRecipe[] {
     return listEntries().filter(e => e.recipe.state === 'active').map(e => e.recipe);
 }
 
-/** candidate → shadow. Shadow execution runs alongside the frontier path. */
-export function promoteToShadow(id: string, reason = 'entered shadow evaluation'): RegistryEntry {
+/**
+ * candidate → shadow. Shadow execution runs alongside the frontier path.
+ *
+ * Gated by `selfCompiling.promote` (Stage 4): the promotion gate must be
+ * on to enter shadow.
+ *
+ * Honey blocker 2 fix: the shadow evaluation window is RESET on every
+ * entry. `shadowComparisons` and `shadowSuccesses` return to 0 and the
+ * `shadowEpoch` is incremented, so comparisons from a prior shadow stint
+ * (before a demote) cannot satisfy the current promotion window. A recipe
+ * that was perfect, got demoted, and re-enters shadow must earn its
+ * promotion from zero fresh evidence — no stale counter reactivation.
+ */
+export function promoteToShadow(
+    id: string,
+    reason = 'entered shadow evaluation',
+    configOverride?: TitanConfig,
+): RegistryEntry {
+    if (configOverride && !shouldPromote(configOverride)) {
+        throw new Error(`RecipeRegistry: promote gate refused shadow entry for ${id} — selfCompiling.promote is off`);
+    }
     const reg = load();
     const entry = reg.entries[id];
     if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
+    // Reset the shadow evaluation window (Honey blocker 2). The epoch
+    // increments so any in-flight comparison records from the prior epoch
+    // are invalidated; the counters return to zero for a clean window.
+    entry.recipe.stats.shadowComparisons = 0;
+    entry.recipe.stats.shadowSuccesses = 0;
+    entry.recipe.stats.shadowEpoch += 1;
     transition(entry, 'shadow', reason);
     save(reg);
     return entry;
@@ -223,26 +303,38 @@ export function promoteToShadow(id: string, reason = 'entered shadow evaluation'
  * equivalent. The eval-harness suite gate (scripts/eval-gate.sh) runs at
  * release time over the whole build; this per-recipe gate runs at promotion
  * time over the recipe's own shadow evidence.
+ *
+ * Gated by `selfCompiling.promote` (Stage 4): promotion requires the gate.
+ *
+ * Uses `shadowSuccesses` (computed by the registry from compared runs,
+ * Honey blocker 3) — NOT `successes`, which counts active-replay wins and
+ * must not be spendable as shadow evidence.
  */
-export function activate(id: string): RegistryEntry {
+export function activate(
+    id: string,
+    configOverride?: TitanConfig,
+): RegistryEntry {
+    if (configOverride && !shouldPromote(configOverride)) {
+        throw new Error(`RecipeRegistry: promote gate refused activation of ${id} — selfCompiling.promote is off`);
+    }
     const reg = load();
     const entry = reg.entries[id];
     if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
-    const { shadowComparisons, successes } = entry.recipe.stats;
+    const { shadowComparisons, shadowSuccesses } = entry.recipe.stats;
     if (entry.recipe.state === 'shadow') {
         if (shadowComparisons < SHADOW_MIN_COMPARISONS) {
             throw new Error(
                 `RecipeRegistry: promotion gate refused ${id} — ${shadowComparisons}/${SHADOW_MIN_COMPARISONS} shadow comparisons`,
             );
         }
-        const rate = successes / shadowComparisons;
+        const rate = shadowSuccesses / shadowComparisons;
         if (rate < SHADOW_MIN_SUCCESS_RATE) {
             throw new Error(
                 `RecipeRegistry: promotion gate refused ${id} — shadow equivalence ${(rate * 100).toFixed(0)}% < ${SHADOW_MIN_SUCCESS_RATE * 100}%`,
             );
         }
     }
-    transition(entry, 'active', `promotion gate passed (${successes}/${shadowComparisons} equivalent)`);
+    transition(entry, 'active', `promotion gate passed (${shadowSuccesses}/${shadowComparisons} equivalent)`);
     save(reg);
     return entry;
 }
@@ -267,16 +359,39 @@ export function retire(id: string, reason: string): RegistryEntry {
 }
 
 /**
- * Record one shadow comparison. `equivalent` is the eval harness's verdict
- * on whether the recipe's output matched the frontier path's output.
+ * Record one shadow comparison. Honey blocker 3 fix: equivalence is
+ * COMPUTED from the compared runs, not accepted as a caller-supplied
+ * boolean. The caller supplies `runs` (the recipe replay output and the
+ * frontier output for the same request); the registry invokes
+ * `comparator` (defaulting to `defaultEquivalenceComparator`) to decide
+ * whether they are equivalent. A caller that wants to satisfy the gate
+ * must supply real run data that the comparator agrees is equivalent —
+ * there is no `equivalent: true` argument to pass.
+ *
+ * Gated by `selfCompiling.promote` (Stage 4): shadow comparisons are part
+ * of the promotion flow; when the gate is off the comparison is refused
+ * and the counters do not advance.
  */
-export function recordShadowComparison(id: string, equivalent: boolean): void {
+export function recordShadowComparison(
+    id: string,
+    runs: ShadowRunOutput,
+    options?: {
+        comparator?: EquivalenceComparator;
+        configOverride?: TitanConfig;
+    },
+): boolean {
+    if (options?.configOverride && !shouldPromote(options.configOverride)) {
+        throw new Error(`RecipeRegistry: promote gate refused shadow comparison for ${id} — selfCompiling.promote is off`);
+    }
+    const comparator = options?.comparator ?? defaultEquivalenceComparator;
+    const equivalent = comparator(runs);
     const reg = load();
     const entry = reg.entries[id];
-    if (!entry) return;
+    if (!entry) return equivalent;
     entry.recipe.stats.shadowComparisons++;
-    if (equivalent) entry.recipe.stats.successes++;
+    if (equivalent) entry.recipe.stats.shadowSuccesses++;
     save(reg);
+    return equivalent;
 }
 
 /**
