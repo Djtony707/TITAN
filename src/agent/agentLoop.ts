@@ -737,7 +737,75 @@ function detectResponseGap(userMessage: string, response: string, messages: Chat
     return null;
 }
 
-// ── Main Loop ──────────────────────────���───────────────────────────���─
+// ── v8 ROUTE: compiled-recipe router gate (testable wrapper) ────────────
+// Decides replay | confirm-required | miss BEFORE any LLM call — the
+// same short-circuit pattern as responseCache, one level up. Only
+// 'replay' short-circuits the loop here; 'confirm-required' falls
+// through to the frontier path until the bound-approval executor lands
+// (safe: falling through is today's behavior for every message).
+// Gated behind config.selfCompiling.route (default off): flag-off is
+// byte-identical to v7 — no registry read, no signature compute, no log line.
+// With an empty registry this is a cheap constant-time miss.
+//
+// Extracted as an exported wrapper so the gate-spy test can import THIS
+// function and prove the production call site honors shouldRoute(). If the
+// `if` gate below is deleted, the seam fires unconditionally and the test
+// (which passes a flag-off ctx and asserts no registry/signature activity)
+// fails — the wiring proof Honey requires.
+//
+// Returns the finalized LoopResult when replay short-circuits the loop
+// (zero frontier tokens), or undefined to fall through to the frontier path.
+export async function runV8RouterGate(
+    ctx: LoopContext,
+    result: LoopResult,
+): Promise<LoopResult | undefined> {
+    if (shouldRoute(ctx.config) && ctx.message && !ctx.voiceFastPath) {
+        try {
+            const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
+            if (routeDecision.kind === 'replay') {
+                const replayCalls: ToolCall[] = routeDecision.resolvedSteps.map((s, i) => ({
+                    id: `replay-${ctx.sessionId}-${i}`,
+                    type: 'function' as const,
+                    function: { name: s.tool, arguments: JSON.stringify(s.args) },
+                }));
+                logger.info(COMPONENT, `[v8 Router] Replay: recipe ${routeDecision.recipe.id} — ${replayCalls.length} step(s), zero frontier calls`);
+                const replayResults = await runWithSession(
+                    { sessionId: ctx.sessionId, agentId: ctx.agentId },
+                    () => executeTools(replayCalls, ctx.channel),
+                );
+                const failedAt = replayResults.findIndex(r => !r.success);
+                if (failedAt === -1) {
+                    recordInvocation(routeDecision.recipe.id, true);
+                    result.content = renderReplayResult(routeDecision.recipe, replayResults);
+                    result.toolsUsed = replayResults.map(r => r.name);
+                    result.attemptedTools = [...result.toolsUsed];
+                    result.orderedToolSequence = [...result.toolsUsed];
+                    result.toolCallDetails = replayResults.map((r, i) => ({
+                        name: r.name,
+                        args: routeDecision.resolvedSteps[i]!.args,
+                        resultSnippet: r.content.slice(0, 500),
+                        success: r.success,
+                        ...(r.actionId ? { actionId: r.actionId } : {}),
+                    }));
+                    return result; // zero frontier tokens — promptTokens/completionTokens stay 0
+                }
+                // Failed cheap run: mint the failure, auto-demote the recipe,
+                // escalate one rung — the frontier path below answers instead.
+                recordInvocation(routeDecision.recipe.id, false);
+                logger.warn(COMPONENT, `[v8 Router] ${escalateOnFailure(routeDecision, failedAt).reason}`);
+            } else if (routeDecision.kind === 'confirm-required') {
+                logger.info(COMPONENT, `[v8 Router] ConfirmRequired: ${routeDecision.reason} — frontier path this turn`);
+            }
+        } catch (err) {
+            // The router must never break the agent loop — any middleware
+            // failure degrades to today's frontier behavior.
+            logger.warn(COMPONENT, `[v8 Router] middleware error, falling through: ${(err as Error).message}`);
+        }
+    }
+    return undefined;
+}
+
+// ── Main Loop ──────────────────────────────────────────────────────
 
 export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     const result: LoopResult = {
@@ -859,56 +927,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     }
 
     // ── v8 ROUTE: compiled-recipe router middleware (slot 6 step 3) ─────
-    // Decides replay | confirm-required | miss BEFORE any LLM call — the
-    // same short-circuit pattern as responseCache, one level up. Only
-    // 'replay' short-circuits the loop here; 'confirm-required' falls
-    // through to the frontier path until the bound-approval executor lands
-    // (safe: falling through is today's behavior for every message).
-    // Gated behind config.selfCompiling.route (default off): flag-off is
-    // byte-identical to v7 — no registry read, no signature compute, no log line.
-    // With an empty registry this is a cheap constant-time miss.
-    if (shouldRoute(ctx.config) && ctx.message && !ctx.voiceFastPath) {
-        try {
-            const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
-            if (routeDecision.kind === 'replay') {
-                const replayCalls: ToolCall[] = routeDecision.resolvedSteps.map((s, i) => ({
-                    id: `replay-${ctx.sessionId}-${i}`,
-                    type: 'function' as const,
-                    function: { name: s.tool, arguments: JSON.stringify(s.args) },
-                }));
-                logger.info(COMPONENT, `[v8 Router] Replay: recipe ${routeDecision.recipe.id} — ${replayCalls.length} step(s), zero frontier calls`);
-                const replayResults = await runWithSession(
-                    { sessionId: ctx.sessionId, agentId: ctx.agentId },
-                    () => executeTools(replayCalls, ctx.channel),
-                );
-                const failedAt = replayResults.findIndex(r => !r.success);
-                if (failedAt === -1) {
-                    recordInvocation(routeDecision.recipe.id, true);
-                    result.content = renderReplayResult(routeDecision.recipe, replayResults);
-                    result.toolsUsed = replayResults.map(r => r.name);
-                    result.attemptedTools = [...result.toolsUsed];
-                    result.orderedToolSequence = [...result.toolsUsed];
-                    result.toolCallDetails = replayResults.map((r, i) => ({
-                        name: r.name,
-                        args: routeDecision.resolvedSteps[i]!.args,
-                        resultSnippet: r.content.slice(0, 500),
-                        success: r.success,
-                        ...(r.actionId ? { actionId: r.actionId } : {}),
-                    }));
-                    return result; // zero frontier tokens — promptTokens/completionTokens stay 0
-                }
-                // Failed cheap run: mint the failure, auto-demote the recipe,
-                // escalate one rung — the frontier path below answers instead.
-                recordInvocation(routeDecision.recipe.id, false);
-                logger.warn(COMPONENT, `[v8 Router] ${escalateOnFailure(routeDecision, failedAt).reason}`);
-            } else if (routeDecision.kind === 'confirm-required') {
-                logger.info(COMPONENT, `[v8 Router] ConfirmRequired: ${routeDecision.reason} — frontier path this turn`);
-            }
-        } catch (err) {
-            // The router must never break the agent loop — any middleware
-            // failure degrades to today's frontier behavior.
-            logger.warn(COMPONENT, `[v8 Router] middleware error, falling through: ${(err as Error).message}`);
-        }
+    // The gate + seam live in runV8RouterGate (testable wrapper) so the
+    // gate-spy test can prove the production call site honors shouldRoute().
+    // Returns the finalized result when replay short-circuits (zero frontier
+    // tokens); undefined falls through to the frontier path below.
+    {
+        const replayed = await runV8RouterGate(ctx, result);
+        if (replayed) return replayed;
     }
 
     while (phase !== 'done' && round < ctx.effectiveMaxRounds) {

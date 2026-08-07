@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { loadConfig } from '../config/config.js';
+import type { TitanConfig } from '../config/schema.js';
 import { getOrCreateSession, getOrCreateSessionById, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
@@ -180,6 +181,23 @@ export function verifyTaskCompletion(
 let currentSessionId: string | null = null;
 export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
 export function getCurrentSessionId(): string | null { return currentSessionId; }
+
+/**
+ * v8 TraceStore (Stage 1: RECORD) — production gate + seam, extracted as a
+ * testable wrapper. processMessage calls THIS instead of inlining the gate
+ * check, so the gate-spy test can import this wrapper and assert that
+ * ensureTracePersistence fires only when shouldPersistTraces(config) is true.
+ * Deleting the `if` here (the gate) makes the seam fire unconditionally and
+ * breaks the test — which is the wiring proof Honey requires.
+ *
+ * Flag-off (selfCompiling.enabled false, the default) is byte-identical to
+ * v7: no trace file is created, no observer is subscribed.
+ */
+export function initV8TracePersistence(config: TitanConfig): void {
+    if (shouldPersistTraces(config)) {
+        ensureTracePersistence();
+    }
+}
 
 // ── Register spawn_agent tool ────────────────────────────────────
 let spawnAgentRegistered = false;
@@ -1225,9 +1243,9 @@ export async function processMessage(
     // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
     // Gated behind config.selfCompiling.record (default off) so flag-off is
     // byte-identical to v7: no trace file is created, no observer is subscribed.
-    if (shouldPersistTraces(config)) {
-        ensureTracePersistence();
-    }
+    // The gate + seam live in initV8TracePersistence (testable wrapper) so the
+    // gate-spy test can prove the production call site honors the flag.
+    initV8TracePersistence(config);
     const trace = startTrace(session.id, message);
     // v4.4.5: accept a caller-provided strategy override. Phone calls
     // force 'direct' so vague conversational questions like "what are

@@ -30,4 +30,3 @@ export function shouldPersistTraces(config: TitanConfig): boolean {
 export function shouldRoute(config: TitanConfig): boolean {
     return !!(config.selfCompiling?.enabled && config.selfCompiling?.route);
 }
-
