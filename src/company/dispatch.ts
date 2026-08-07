@@ -140,12 +140,6 @@ export class CompanyDispatch {
         return foldQueue(this.log.readAll());
     }
 
-    /** Refreshed-fold confirmation that an active TASK-scoped hold covers
-     *  the task right now — the second half of the benign-race test. */
-    private taskHeldNow(taskRef: string): boolean {
-        return [...this.fold().activeHolds.values()].some(h => h.scope === taskRef);
-    }
-
     /** Nonterminal tasks, derived from the log (status surfaces/tests). */
     depth(): number {
         return [...this.fold().tasks.values()].filter(t => !t.checked).length;
@@ -250,14 +244,16 @@ export class CompanyDispatch {
                         // A hold that landed DURING the review is the race
                         // resolving correctly at the append boundary
                         // (E_HELD_VERDICT, close review bb2d09dc) — benign,
-                        // NOT a stalled pair: the next fold excludes the task
-                        // and a user lift + kick resumes it in-process.
-                        // Benign ONLY when the structured code matches AND a
-                        // refreshed fold confirms the task hold actually
-                        // exists (close review 1eaf46a2) — anything else is
-                        // an ordinary reviewer failure and takes the stall
-                        // path, preserving the no-spin contract.
-                        if (isHeldVerdictError(err) && this.taskHeldNow(pendingReview.taskRef)) {
+                        // NOT a stalled pair. The STRUCTURED rejection alone
+                        // is the proof: the transaction observed the hold at
+                        // append time (close review 8936128 — a refreshed
+                        // fold read is NOT atomic with the rejected append;
+                        // consulting it misclassified a genuine rejection
+                        // when the user lifted between reject and catch).
+                        // The loop's continue re-folds: if the hold is gone
+                        // already, THIS drain pass resumes the review — no
+                        // second external kick or restart needed.
+                        if (isHeldVerdictError(err)) {
                             logger.info(COMPONENT, `verdict for ${rkey} paused by a task-scoped hold set mid-review`);
                             return;
                         }
@@ -276,9 +272,9 @@ export class CompanyDispatch {
                 await this.runOne(next).catch(async err => {
                     // Same benign race on the LIVE path: a hold set while the
                     // reviewer ran leaves the task resulted-unchecked and
-                    // held — no terminal failure, no stall; lift resumes it.
-                    // Same double condition: structured code + refreshed fold.
-                    if (isHeldVerdictError(err) && this.taskHeldNow(next.taskRef)) {
+                    // held — no terminal failure, no stall; the loop (or a
+                    // later lift + kick) resumes it. Structured code alone.
+                    if (isHeldVerdictError(err)) {
                         logger.info(COMPONENT, `verdict for ${next.taskRef} paused by a task-scoped hold set mid-review`);
                         return;
                     }

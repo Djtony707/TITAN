@@ -398,6 +398,58 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(log.verifyChain().ok).toBe(true);
     });
 
+    it('LIFT/CATCH RACE (close review 8936128): hold lifted between txn rejection and catch — SAME drain pass completes, no second kick', async () => {
+        const { log, keysDir, memoryDir } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'lift races catch');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        const seededResult = log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+        const watchman = mintAgentKeys('watchman', keysDir);
+        const user = mintAgentKeys('user', keysDir);
+        // Barrier 1: the FIRST review call sets the task hold (so the check
+        // append is transactionally rejected).
+        let hold: { id: string } | null = null;
+        const reviewer = vi.fn(async (req: Parameters<Reviewer>[0]) => {
+            if (!hold) hold = log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: ev.id, reason: 'raced pause' } }, watchman.privateKey);
+            return okReviewer(req);
+        });
+        // Barrier 2 (the review's exact window): when that check append
+        // throws the structured E_HELD_VERDICT, the user's lift lands
+        // BEFORE the rejection reaches the dispatcher's catch.
+        let lifted = false;
+        const raced = new Proxy(log, {
+            get(target, prop) {
+                if (prop === 'append') {
+                    return (input: Parameters<CompanyLog['append']>[0], key: Parameters<CompanyLog['append']>[1]) => {
+                        try {
+                            return target.append(input, key);
+                        } catch (err) {
+                            if (!lifted && input.kind === 'task.checked'
+                                && (err as { code?: string }).code === 'E_HELD_VERDICT' && hold) {
+                                lifted = true;
+                                target.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef: hold.id } }, user.privateKey);
+                            }
+                            throw err;
+                        }
+                    };
+                }
+                const v = Reflect.get(target, prop);
+                return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+            },
+        }) as CompanyLog;
+        const runner = vi.fn(okRunner);
+        const d = new CompanyDispatch(raced, keysDir, memoryDir, { maxAttempts: 2, charterOf: () => 'charter' }, runner, reviewer);
+        d.recover();          // the ONLY external kick in this test
+        await d.idle();
+        expect(lifted).toBe(true);                        // the race window fired
+        expect(runner).not.toHaveBeenCalled();            // worker never rerun
+        expect(log.read({ kind: 'task.result' })).toHaveLength(1); // no duplicate
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);                   // SAME drain pass resumed and checked
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, resultRef: seededResult.id, verdict: 'accepted', attempt: 1 });
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
     it('CONTAINMENT (close review 1eaf46a2): reviewer error CONTAINING the held-verdict token, no hold — stalls, no spin', async () => {
         const { log, keysDir, mk } = scenario();
         const ev = delegate(log, keysDir, 'scout', 'spoofed token');
