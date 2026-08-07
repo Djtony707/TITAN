@@ -26,6 +26,12 @@ import { appendMemory, renderMemoryForPrompt } from './memoryStream.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'CompanyDispatch';
+
+/** The task.checked validator refused because a task-scoped hold covers the
+ *  task (E_HELD_VERDICT) — the async-review/hold race resolving correctly. */
+function isHeldVerdictRace(err: unknown): boolean {
+    return /E_HELD_VERDICT/.test(err instanceof Error ? err.message : String(err));
+}
 const MAX_RESULT_CHARS = 8000;
 
 export interface TurnRequest {
@@ -230,6 +236,15 @@ export class CompanyDispatch {
                 if (pendingReview) {
                     const rkey = `${pendingReview.taskRef}:${pendingReview.attempt}`;
                     await this.resumeReview(pendingReview).catch(err => {
+                        // A hold that landed DURING the review is the race
+                        // resolving correctly at the append boundary
+                        // (E_HELD_VERDICT, close review bb2d09dc) — benign,
+                        // NOT a stalled pair: the next fold excludes the task
+                        // and a user lift + kick resumes it in-process.
+                        if (isHeldVerdictRace(err)) {
+                            logger.info(COMPONENT, `verdict for ${rkey} paused by a task-scoped hold set mid-review`);
+                            return;
+                        }
                         // Reviewer failure must NOT spin the loop: stall the
                         // pair (one fresh chance per recover(), which clears
                         // stalled) — the durable exit stays user queue-discard.
@@ -243,6 +258,13 @@ export class CompanyDispatch {
                 const key = `${next.taskRef}:${next.attempt}`;
                 if (this.stalled.has(key)) break; // no progress possible now
                 await this.runOne(next).catch(async err => {
+                    // Same benign race on the LIVE path: a hold set while the
+                    // reviewer ran leaves the task resulted-unchecked and
+                    // held — no terminal failure, no stall; lift resumes it.
+                    if (isHeldVerdictRace(err)) {
+                        logger.info(COMPONENT, `verdict for ${next.taskRef} paused by a task-scoped hold set mid-review`);
+                        return;
+                    }
                     logger.error(COMPONENT, `task pipeline failed: ${err instanceof Error ? err.message : String(err)}`);
                     await this.appendTerminalFailure(next, err).catch(e2 => {
                         logger.error(COMPONENT, `terminal-failure append also failed: ${e2 instanceof Error ? e2.message : String(e2)}`);

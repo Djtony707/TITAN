@@ -232,6 +232,15 @@ export function queueValidator(ctx: AppendContext): void {
             if (task.checked) reject('E_TERMINAL', 'task already checked');
             if (isMaintenance) return; // v5 §3b: maintenance-only terminal transition (user-signed)
             if (task.activeBlocks.size > 0) reject('E_BLOCKED', 'verdict waits until blocks clear');
+            // Close review bb2d09dc: a task-scoped hold is the user's per-task
+            // verdict pause, revalidated HERE inside the append transaction —
+            // an async reviewer racing a hold.set cannot land its check (same
+            // boundary class as the E_STALE_STALL fix). Queue-scope holds
+            // stay non-blocking for an already-recorded review (approved
+            // presentation contract: they gate dispatch-waiting slots only).
+            for (const h of fold.activeHolds.values()) {
+                if (h.scope === taskRef) reject('E_HELD_VERDICT', 'verdict paused by a task-scoped hold');
+            }
             if (!(actor === 'ceo' || actor === 'user')) reject('E_AUTHORITY', 'check is CEO or user');
             const attempt = eventAttempt({ payload: p } as CompanyEvent);
             if (!task.resultedAttempts.has(attempt) || attempt !== task.attempt) {

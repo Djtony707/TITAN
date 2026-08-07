@@ -361,6 +361,43 @@ describe('v8 slice 1 — re-review evidence (event a760bf8a)', () => {
         expect(log.verifyChain().ok).toBe(true);
     });
 
+    it('TOCTOU (close review bb2d09dc): hold lands DURING review — check rejected in the txn, benign, lift+kick resumes in-process', async () => {
+        const { log, keysDir, mk } = scenario();
+        const ev = delegate(log, keysDir, 'scout', 'hold races review');
+        const scout = mintAgentKeys('scout', keysDir);
+        log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: ev.id, attempt: 1 } }, scout.privateKey);
+        const seededResult = log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: ev.id, attempt: 1, content: 'ok', success: true, toolsUsed: [] } }, scout.privateKey);
+        // Deterministic barrier: the FIRST review call appends the task-scope
+        // hold before returning — the exact interleaving from the review
+        // (fold read → reviewer await → hold.set → check append).
+        const watchman = mintAgentKeys('watchman', keysDir);
+        let hold: { id: string } | null = null;
+        const runner = vi.fn(okRunner);
+        const reviewer = vi.fn(async (req: Parameters<Reviewer>[0]) => {
+            if (!hold) {
+                hold = log.append({ kind: 'hold.set', actor: 'watchman', payload: { scope: ev.id, reason: 'raced pause' } }, watchman.privateKey);
+            }
+            return okReviewer(req);
+        });
+        const d = mk(runner, reviewer);
+        d.recover();
+        await d.idle();
+        expect(hold).not.toBeNull();                          // the race path fired
+        expect(log.read({ kind: 'task.checked' })).toHaveLength(0); // check REJECTED inside the append txn
+        // Benign resolution — NOT a stalled pair: the SAME process resumes
+        // after the user's lift, no restart required.
+        const user = mintAgentKeys('user', keysDir);
+        log.append({ kind: 'hold.lifted', actor: 'user', payload: { holdRef: hold!.id } }, user.privateKey);
+        d.kick();
+        await d.idle();
+        expect(runner).not.toHaveBeenCalled();                // worker never rerun
+        expect(log.read({ kind: 'task.result' })).toHaveLength(1); // no duplicate result
+        const checks = log.read({ kind: 'task.checked' });
+        expect(checks).toHaveLength(1);                       // reviewed from the SAME signed result exactly once
+        expect(checks[0].payload).toMatchObject({ taskRef: ev.id, resultRef: seededResult.id, verdict: 'accepted', attempt: 1 });
+        expect(log.verifyChain().ok).toBe(true);
+    });
+
     it('CRASH-AFTER-FAILED-RESULT below cap: resumption re-queues via failure-retry and the pipeline completes', async () => {
         const { log, keysDir, mk } = scenario();
         const ev = delegate(log, keysDir, 'scout', 'failed then crashed');
