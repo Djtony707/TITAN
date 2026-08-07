@@ -50,6 +50,7 @@ import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import { detectSystemWidget, buildSystemWidgetGate } from './systemWidgets.js';
 import { startTrace } from './tracer.js';
 import { ensureTracePersistence } from './traceStore.js';
+import { shouldPersistTraces } from './v8Gates.js';
 import { initSoulState, updateSoulState, emitHeartbeat, getInnerMonologue, consolidateWisdom, clearSoulState, getWisdomHints } from './soul.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
@@ -1224,7 +1225,7 @@ export async function processMessage(
     // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
     // Gated behind config.selfCompiling.record (default off) so flag-off is
     // byte-identical to v7: no trace file is created, no observer is subscribed.
-    if (config.selfCompiling?.enabled && config.selfCompiling?.record) {
+    if (shouldPersistTraces(config)) {
         ensureTracePersistence();
     }
     const trace = startTrace(session.id, message);
