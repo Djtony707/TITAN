@@ -465,7 +465,8 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         const store = new SystemStore(home);
         const keysDir = join(home, 'keys');
         mkdirSync(keysDir, { recursive: true });
-        mintAgentKeys('a', keysDir);
+        // B2 locks authority module-side — 'company.created' requires actor 'user'.
+        const user = mintAgentKeys('user', keysDir);
         const signing = makeSigning(keysDir);
         const cfg: FeatureRuntimeConfig = {
             baseAppendable: ['company.created'], signing, keysDir, busEmit: () => {},
@@ -479,7 +480,7 @@ describe('substrate migration — per-home coordination (Honey B5)', () => {
         expect(cap1.count()).toBe(0);
         expect(cap2.count()).toBe(0);
         // Both caps can append (both valid).
-        cap1.append({ kind: 'company.created', actor: 'a', payload: { name: 'A' } }, mintAgentKeys('a', keysDir).privateKey);
+        cap1.append({ kind: 'company.created', actor: 'user', payload: { name: 'A' } }, user.privateKey);
         expect(cap2.count()).toBe(1);
         // Close one — the store stays open (refcount 1 remaining).
         cap1.close();
