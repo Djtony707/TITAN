@@ -12,7 +12,7 @@ import type { CompanyEvent } from './log.js';
 import { foldQueue } from './queue.js';
 import { presenceAt } from './presence.js';
 
-export type QueueSlotState = 'queued' | 'running' | 'blocked' | 'held' | 'done' | 'discarded';
+export type QueueSlotState = 'queued' | 'running' | 'reviewing' | 'blocked' | 'held' | 'done' | 'discarded';
 
 export interface QueueSlotView {
     slot: number;
@@ -49,6 +49,7 @@ export interface QueueFoldView {
     slots: QueueSlotView[];
     commitments: QueueCommitmentView[];
     runningCount: number;
+    reviewingCount: number;
     queuedCount: number;
     blockedCount: number;
     heldCount: number;
@@ -153,23 +154,33 @@ export function queueView(events: readonly CompanyEvent[], now: number): QueueFo
             view.stateSince = blockEvent?.ts ?? view.stateSince;
             return view;
         }
-        const inFlight = t.attempt > 0 && t.startedAttempts.has(t.attempt);
+        // Lane truth comes from the AUTHORITATIVE fold, never re-derived
+        // (patch-5 review 8e7ad98b #1): 'running' is exactly
+        // fold.runningTask — at most one slot, by construction.
+        if (fold.runningTask === t.taskRef) {
+            view.state = 'running';
+            view.stateSince = lastLifecycle?.ts ?? view.stateSince;
+            return view;
+        }
+        // Result recorded, check pending: the execution lane is FREE
+        // (foldQueue cleared runningTask on the result) — presented
+        // explicitly as 'reviewing', not as a manufactured second
+        // occupied lane.
+        if (t.attempt > 0 && t.resultedAttempts.has(t.attempt)) {
+            view.state = 'reviewing';
+            view.stateSince = lastLifecycle?.ts ?? view.stateSince;
+            return view;
+        }
+        // Dispatch-waiting from here on. Holds gate dispatch (v5 §1):
+        // a task-scope or queue-scope hold renders the waiting slot held.
         const [holdRef, hold] = [...fold.activeHolds.entries()].find(([, h]) => h.scope === t.taskRef)
-            ?? (!inFlight ? queueHolds[0] : undefined)
+            ?? queueHolds[0]
             ?? [];
         if (holdRef && hold) {
-            // Holds gate dispatch (v5 §1): a queue-scope hold shows on
-            // not-yet-running slots; a task-scope hold shows regardless.
             view.state = 'held';
             const holdEvent = byId.get(holdRef);
             view.hold = { holdRef, setter: hold.setter, reason: holdEvent ? payloadStr(holdEvent, 'reason') : '', at: holdEvent?.ts ?? 0 };
             view.stateSince = holdEvent?.ts ?? view.stateSince;
-            return view;
-        }
-        if (inFlight) {
-            // Mid-pipeline: started (running) or resulted awaiting its check.
-            view.state = 'running';
-            view.stateSince = lastLifecycle?.ts ?? view.stateSince;
             return view;
         }
         // queued — a retry re-queues; date the state from the retry.
@@ -204,19 +215,23 @@ export function queueView(events: readonly CompanyEvent[], now: number): QueueFo
     });
 
     const count = (s: QueueSlotState) => slots.filter(x => x.state === s).length;
-    const runningSlot = slots.find(s => s.state === 'running');
+    // Lane occupancy/owner from fold.runningTask, NOT from display states:
+    // a blocked-mid-attempt task keeps the lane (its attempt is live even
+    // while its display state is 'blocked'), so the lane reads busy.
+    const laneTask = fold.runningTask ? fold.tasks.get(fold.runningTask) : undefined;
     return {
         slots,
         commitments,
         runningCount: count('running'),
+        reviewingCount: count('reviewing'),
         queuedCount: count('queued'),
         blockedCount: count('blocked'),
         heldCount: count('held'),
         doneCount: count('done') + count('discarded'),
         openCommitments: commitments.filter(c => !c.closed).length,
         overdueCommitments: commitments.filter(c => c.overdue).length,
-        laneBusy: Boolean(runningSlot),
-        laneOwner: runningSlot?.ownerName ?? runningSlot?.owner,
+        laneBusy: Boolean(laneTask),
+        laneOwner: laneTask ? (crew.get(laneTask.owner)?.displayName ?? laneTask.owner) : undefined,
     };
 }
 

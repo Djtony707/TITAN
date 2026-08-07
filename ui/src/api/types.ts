@@ -807,6 +807,7 @@ export interface CompanyRoomPage {
 export type QueueSlotState =
   | 'queued'
   | 'running'
+  | 'reviewing'
   | 'blocked'
   | 'held'
   | 'done'
@@ -938,6 +939,8 @@ export interface QueueFold {
   commitments: QueueCommitment[];
   /** Count of running slots (0 or 1 — one-lane queue) */
   runningCount: number;
+  /** Count of slots whose result awaits its check (lane already free) */
+  reviewingCount: number;
   /** Count of queued slots */
   queuedCount: number;
   /** Count of blocked slots */

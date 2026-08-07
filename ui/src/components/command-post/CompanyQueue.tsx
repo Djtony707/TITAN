@@ -100,6 +100,7 @@ function avatarInitial(name: string): string {
 const STATE_STYLES: Record<QueueSlotState, { label: string; className: string; borderClass: string }> = {
   queued:    { label: 'Queued',    className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', borderClass: 'border-l-amber-500' },
   running:   { label: 'Running',   className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', borderClass: 'border-l-emerald-500' },
+  reviewing: { label: 'Reviewing', className: 'bg-sky-500/15 text-sky-600 dark:text-sky-400', borderClass: 'border-l-sky-500' },
   blocked:   { label: 'Blocked',   className: 'bg-orange-500/15 text-orange-600 dark:text-orange-400', borderClass: 'border-l-orange-500' },
   held:      { label: 'Held',      className: 'bg-red-500/15 text-red-600 dark:text-red-400', borderClass: 'border-l-red-500' },
   done:      { label: 'Done',      className: 'bg-green-500/15 text-green-600 dark:text-green-400', borderClass: 'border-l-green-500' },

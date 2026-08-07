@@ -68,12 +68,35 @@ describe('queueView — slot states, counts, commitments', () => {
         expect(v.slots[0]).toMatchObject({ slot: 1, verdict: 'accepted', ownerName: 'Scout', ownerRole: 'Researcher' });
         expect(v.slots[1].block).toMatchObject({ blockRef: blk.id, setter: 'watchman', reason: 'stalled', autoClearable: true });
         expect(v.slots[2]).toMatchObject({ spec: 'third task', attempt: 0 });
-        expect(v).toMatchObject({ doneCount: 1, blockedCount: 1, queuedCount: 1, runningCount: 0, laneBusy: false });
+        // PROOF (a), review 8e7ad98b: a blocked MID-ATTEMPT task still
+        // occupies the lane (fold.runningTask) — no false idle indication.
+        expect(v).toMatchObject({ doneCount: 1, blockedCount: 1, queuedCount: 1, runningCount: 0, laneBusy: true, laneOwner: 'Builder' });
         // clear the block: slot returns to running (in-flight attempt), lane busy
         s.log.append({ kind: 'task.unblocked', actor: 'user', payload: { blockRef: blk.id } }, s.user.privateKey);
         const v2 = queueView(s.log.readAll(), blk.ts + 2);
         expect(v2.slots[1].state).toBe('running');
         expect(v2).toMatchObject({ runningCount: 1, laneBusy: true, laneOwner: 'Builder' });
+        s.log.close();
+    });
+
+    it('PROOF (b), review 8e7ad98b: result-unchecked presents as reviewing — one lane, no impossible running count', () => {
+        const s = scenario();
+        // d1 runs and records its result; check is still pending.
+        const d1 = delegate(s, 'scout', 'result awaiting check');
+        s.log.append({ kind: 'task.started', actor: 'scout', payload: { taskRef: d1.id, attempt: 1 } }, s.scout.privateKey);
+        const r1 = s.log.append({ kind: 'task.result', actor: 'scout', payload: { taskRef: d1.id, attempt: 1, content: 'ok', success: true } }, s.scout.privateKey);
+        // the fold freed the lane on the result — d2 genuinely starts.
+        const d2 = delegate(s, 'builder', 'next in lane');
+        s.log.append({ kind: 'task.started', actor: 'builder', payload: { taskRef: d2.id, attempt: 1 } }, s.builder.privateKey);
+        const v = queueView(s.log.readAll(), r1.ts + 1);
+        expect(v.slots.map(x => x.state)).toEqual(['reviewing', 'running']); // NOT two running
+        expect(v).toMatchObject({ runningCount: 1, reviewingCount: 1, laneBusy: true, laneOwner: 'Builder' });
+        // and with NOTHING started, a lone reviewing slot leaves the lane free
+        s.log.append({ kind: 'task.result', actor: 'builder', payload: { taskRef: d2.id, attempt: 1, content: 'ok', success: true } }, s.builder.privateKey);
+        const v2 = queueView(s.log.readAll(), r1.ts + 2);
+        expect(v2.slots.map(x => x.state)).toEqual(['reviewing', 'reviewing']);
+        expect(v2).toMatchObject({ runningCount: 0, laneBusy: false });
+        expect(v2.laneOwner).toBeUndefined();
         s.log.close();
     });
 

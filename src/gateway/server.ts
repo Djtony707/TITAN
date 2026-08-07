@@ -85,6 +85,7 @@ import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
 import { createCompanyRouter } from './routes/company.js';
+import { restartFieldsFor, applyCompanyConfig } from './restartPolicy.js';
 import { createMissionsRouter } from './routes/missions.js';
 import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange, reattachMissionBridgesOnStartup } from '../agent/missionLifecycle.js';
 import { createAdminRouter } from './routes/adminRouter.js';
@@ -117,8 +118,8 @@ function getCpuLoad(): number {
     return Math.min(1, avg / cores);
 }
 
-/** Fields that require a gateway restart to take effect */
-const RESTART_REQUIRED_PATTERNS = ['channels.*', 'gateway.auth.*', 'logging.level'];
+/** Fields that require a gateway restart to take effect — the policy
+ *  lives in restartPolicy.ts so it is a pure, directly tested function. */
 
 /** Module-level HTTP server reference (allows stopGateway to close it) */
 let httpServer: ReturnType<typeof createServer> | null = null;
@@ -3601,22 +3602,16 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (cp.enabled !== undefined) draft.commandPost.enabled = Boolean(cp.enabled);
         changedFields.push('commandPost');
       }
-      // v8 company layer flag
+      // v8 company layer + queue sub-flag — PRECISE changed-field names
+      // ('company.enabled', 'company.queue.enabled', …) so the restart
+      // contract below distinguishes mode flips from cosmetic edits
+      // (patch-5 review 8e7ad98b #2). Both flags are restart-required:
+      // the company service caches one dispatcher mode per process.
       if (body.company !== undefined && typeof body.company === 'object') {
         const co = body.company as Record<string, unknown>;
         if (!(draft as Record<string, unknown>).company) (draft as Record<string, unknown>).company = {};
         const dco = (draft as Record<string, unknown>).company as Record<string, unknown>;
-        if (co.enabled !== undefined) dco.enabled = Boolean(co.enabled);
-        if (co.name !== undefined && typeof co.name === 'string') dco.name = co.name;
-        if (co.mission !== undefined && typeof co.mission === 'string') dco.mission = co.mission;
-        // v8 Slice 2 — work queue sub-flag
-        if (co.queue !== undefined && typeof co.queue === 'object') {
-          const q = co.queue as Record<string, unknown>;
-          if (!dco.queue) dco.queue = {};
-          const dq = dco.queue as Record<string, unknown>;
-          if (q.enabled !== undefined) dq.enabled = Boolean(q.enabled);
-        }
-        changedFields.push('company');
+        changedFields.push(...applyCompanyConfig(co, dco));
       }
       if (body.mesh !== undefined && typeof body.mesh === 'object') {
         const m = body.mesh as Record<string, unknown>;
@@ -3719,14 +3714,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       updateConfig(draft);
 
       // Determine which changed fields require a restart
-      const restartFields = changedFields.filter(field =>
-        RESTART_REQUIRED_PATTERNS.some(pattern => {
-          if (pattern.endsWith('.*')) {
-            return field.startsWith(pattern.slice(0, -1));
-          }
-          return field === pattern;
-        })
-      );
+      const restartFields = restartFieldsFor(changedFields);
 
       res.json({ ok: true, restartRequired: restartFields.length > 0, restartFields });
     } catch (e) {
