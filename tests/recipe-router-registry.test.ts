@@ -17,7 +17,6 @@ import {
     registerRecipe,
     retire,
     SHADOW_MIN_COMPARISONS,
-    type ShadowRunOutput,
 } from '../src/agent/recipeRegistry.js';
 import { persistTrace, type PersistedTrace } from '../src/agent/traceStore.js';
 import { escalateOnFailure, renderReplayResult, routeCompiled } from '../src/agent/routerMiddleware.js';
@@ -67,20 +66,26 @@ function makeTrace(overrides: Partial<PersistedTrace> = {}): PersistedTrace {
 function activateRecipe(trace: PersistedTrace): CompiledRecipe {
     const recipe = compileRecipe(trace);
     registerRecipe(recipe);
-    promoteToShadow(recipe.id);
-    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, matchingRuns());
+    const entry = promoteToShadow(recipe.id);
+    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
+        recordShadowComparison(recipe.id, {
+            epoch: entry.recipe.stats.shadowEpoch,
+            comparisonId: `cmp-${recipe.id}-${i}`,
+            ...matchingRuns(),
+        });
+    }
     activate(recipe.id);
     return getEntry(recipe.id)!.recipe;
 }
 
-/** Build a ShadowRunOutput where both sides are byte-identical (default
+/** Build evidence where both sides are byte-identical (default
  *  comparator returns true). */
-function matchingRuns(content = 'ok'): ShadowRunOutput {
+function matchingRuns(content = 'ok'): { recipe: Array<{ name: string; content: string }>; frontier: Array<{ name: string; content: string }> } {
     return { recipe: [{ name: 'read_file', content }], frontier: [{ name: 'read_file', content }] };
 }
 
-/** Build a ShadowRunOutput where the two sides differ (comparator returns false). */
-function mismatchedRuns(): ShadowRunOutput {
+/** Build evidence where the two sides differ (comparator returns false). */
+function mismatchedRuns(): { recipe: Array<{ name: string; content: string }>; frontier: Array<{ name: string; content: string }> } {
     return { recipe: [{ name: 'read_file', content: 'ok' }], frontier: [{ name: 'read_file', content: 'DIFFERENT' }] };
 }
 
@@ -116,14 +121,14 @@ describe('recipeRegistry', () => {
     it('promotion gate refuses shadow recipes without enough equivalent comparisons', () => {
         const recipe = compileRecipe(makeTrace());
         registerRecipe(recipe);
-        promoteToShadow(recipe.id);
+        const entry = promoteToShadow(recipe.id);
 
-        recordShadowComparison(recipe.id, matchingRuns());
-        recordShadowComparison(recipe.id, matchingRuns());
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'c1', ...matchingRuns() });
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'c2', ...matchingRuns() });
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
 
-        recordShadowComparison(recipe.id, mismatchedRuns()); // one mismatch kills it
-        recordShadowComparison(recipe.id, matchingRuns());
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'c3', ...mismatchedRuns() }); // one mismatch kills it
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'c4', ...matchingRuns() });
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
     });
@@ -207,7 +212,8 @@ describe('routerMiddleware', () => {
         const b = compileRecipe(makeTrace({ traceId: 'trBBBBBB' }), { id: 'second-recipe' });
         registerRecipe(b);
         promoteToShadow(b.id);
-        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, matchingRuns());
+        const bEntry = getEntry(b.id)!;
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, { epoch: bEntry.recipe.stats.shadowEpoch, comparisonId: `cmp-b-${i}`, ...matchingRuns() });
         activate(b.id);
 
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [a, getEntry(b.id)!.recipe] });

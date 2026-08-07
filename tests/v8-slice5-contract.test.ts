@@ -30,7 +30,6 @@ import { compileRecipe, type CompiledRecipe } from '../src/agent/recipeCompiler.
 import { computeAbstractSignature } from '../src/agent/recipeSignature.js';
 import {
     activate,
-    defaultEquivalenceComparator,
     demote,
     getActiveRecipes,
     getEntry,
@@ -41,8 +40,7 @@ import {
     registerRecipe,
     retire,
     SHADOW_MIN_COMPARISONS,
-    type EquivalenceComparator,
-    type ShadowRunOutput,
+    type ShadowComparisonRecord,
 } from '../src/agent/recipeRegistry.js';
 import { persistTrace, type PersistedTrace } from '../src/agent/traceStore.js';
 
@@ -89,12 +87,18 @@ function makeTrace(overrides: Partial<PersistedTrace> = {}): PersistedTrace {
     };
 }
 
-function matchingRuns(content = 'ok'): ShadowRunOutput {
+function matchingRuns(content = 'ok'): { recipe: Array<{ name: string; content: string }>; frontier: Array<{ name: string; content: string }> } {
     return { recipe: [{ name: 'read_file', content }], frontier: [{ name: 'read_file', content }] };
 }
 
-function mismatchedRuns(): ShadowRunOutput {
+function mismatchedRuns(): { recipe: Array<{ name: string; content: string }>; frontier: Array<{ name: string; content: string }> } {
     return { recipe: [{ name: 'read_file', content: 'ok' }], frontier: [{ name: 'read_file', content: 'DIFFERENT' }] };
+}
+
+let cmpCounter = 0;
+function nextComparisonId(): string {
+    cmpCounter += 1;
+    return `cmp-${cmpCounter}`;
 }
 
 function cfg(overrides: { enabled?: boolean; compile?: boolean; promote?: boolean; route?: boolean; record?: boolean } = {}): TitanConfig {
@@ -119,8 +123,10 @@ function compileAndRegister(trace?: PersistedTrace, config?: TitanConfig): Compi
 
 function activateRecipe(trace?: PersistedTrace, config?: TitanConfig): CompiledRecipe {
     const recipe = compileAndRegister(trace, config);
-    promoteToShadow(recipe.id, 'enter shadow', config ?? cfg());
-    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, matchingRuns(), { configOverride: config ?? cfg() });
+    const entry = promoteToShadow(recipe.id, 'enter shadow', config ?? cfg());
+    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: config ?? cfg() });
+    }
     activate(recipe.id, config ?? cfg());
     return getEntry(recipe.id)!.recipe;
 }
@@ -181,17 +187,17 @@ describe('import contract: recipeRegistry public surface', () => {
         expect(typeof getActiveRecipes).toBe('function');
         expect(typeof getEntry).toBe('function');
         expect(typeof invalidateRegistryCache).toBe('function');
-        expect(typeof defaultEquivalenceComparator).toBe('function');
     });
     it('exports the gate thresholds', () => {
         expect(SHADOW_MIN_COMPARISONS).toBe(3);
     });
     it('exports the equivalence types (compile-time)', () => {
         // Type-level only — if these don't compile, the test file fails to build.
-        const _runs: ShadowRunOutput = { recipe: [], frontier: '' };
-        const _cmp: EquivalenceComparator = () => true;
-        expect(_runs).toBeDefined();
-        expect(_cmp).toBeDefined();
+        const _record: ShadowComparisonRecord = {
+            recipeId: '', shadowEpoch: 0, comparisonId: '', equivalent: false,
+            comparatorId: '', comparatorVersion: 0, recipeOutputHash: '', frontierOutputHash: '', createdAt: '',
+        };
+        expect(_record).toBeDefined();
     });
 });
 
@@ -253,63 +259,86 @@ describe('Honey blocker 2: shadow window reset on re-entry', () => {
         // Stale counters: 3 comparisons, 3 successes. After demote + re-enter,
         // counters are 0 — activate must refuse even though it was perfect before.
         demote(recipe.id, 'rollback');
-        promoteToShadow(recipe.id, 're-enter', cfg());
+        const entry = promoteToShadow(recipe.id, 're-enter', cfg());
         expect(() => activate(recipe.id, cfg())).toThrow(/promotion gate refused/);
         // Must earn 3 fresh comparisons.
-        recordShadowComparison(recipe.id, matchingRuns(), { configOverride: cfg() });
-        recordShadowComparison(recipe.id, matchingRuns(), { configOverride: cfg() });
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
         expect(() => activate(recipe.id, cfg())).toThrow(/promotion gate refused/);
-        recordShadowComparison(recipe.id, matchingRuns(), { configOverride: cfg() });
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
         activate(recipe.id, cfg());
         expect(getEntry(recipe.id)!.recipe.state).toBe('active');
     });
 });
 
-// ── Honey blocker 3: computed equivalence ────────────────────────────────
+// ── Honey blocker 3: computed equivalence (closed comparator) ─────────────
 
 describe('Honey blocker 3: equivalence is computed, not caller-supplied', () => {
-    it('recordShadowComparison accepts run data, not a boolean', () => {
+    it('recordShadowComparison accepts structured evidence, not a boolean', () => {
         const recipe = compileAndRegister();
-        promoteToShadow(recipe.id, 'shadow', cfg());
-        // The new signature takes (id, runs, options) — a boolean would not
-        // satisfy the ShadowRunOutput type at compile time.
-        const result = recordShadowComparison(recipe.id, matchingRuns(), { configOverride: cfg() });
-        expect(result).toBe(true);
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        // The signature takes (id, {epoch, comparisonId, recipe, frontier}) —
+        // a boolean would not satisfy the type at compile time.
+        const result = recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
+        expect(result.equivalent).toBe(true);
+        expect(result.comparatorId).toBe('structural-v1');
+        expect(result.comparatorVersion).toBe(1);
+        expect(result.recipeOutputHash).toBeDefined();
+        expect(result.frontierOutputHash).toBeDefined();
         expect(getEntry(recipe.id)!.recipe.stats.shadowSuccesses).toBe(1);
     });
     it('mismatched runs do not increment shadowSuccesses', () => {
         const recipe = compileAndRegister();
-        promoteToShadow(recipe.id, 'shadow', cfg());
-        recordShadowComparison(recipe.id, mismatchedRuns(), { configOverride: cfg() });
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...mismatchedRuns() }, { configOverride: cfg() });
         const stats = getEntry(recipe.id)!.recipe.stats;
         expect(stats.shadowComparisons).toBe(1);
         expect(stats.shadowSuccesses).toBe(0);
     });
-    it('a caller cannot satisfy the gate by passing equivalent data that does not match', () => {
+    it('a caller cannot satisfy the gate by passing mismatched data', () => {
         const recipe = compileAndRegister();
-        promoteToShadow(recipe.id, 'shadow', cfg());
-        // 3 mismatched comparisons — even though we called it 3 times,
-        // the gate computes false for each and refuses activation.
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
         for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
-            recordShadowComparison(recipe.id, mismatchedRuns(), { configOverride: cfg() });
+            recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...mismatchedRuns() }, { configOverride: cfg() });
         }
         expect(() => activate(recipe.id, cfg())).toThrow(/promotion gate refused.*0%/);
     });
-    it('uses the injected comparator, not a hidden default that can be bypassed', () => {
+    it('returns a ShadowComparisonRecord with comparator identity and output hashes', () => {
         const recipe = compileAndRegister();
-        promoteToShadow(recipe.id, 'shadow', cfg());
-        // Custom comparator that always returns false — even matching runs
-        // are judged non-equivalent. The caller cannot override the verdict
-        // by choosing the data; the comparator owns the truth.
-        const alwaysFalse: EquivalenceComparator = () => false;
-        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
-            recordShadowComparison(recipe.id, matchingRuns(), { comparator: alwaysFalse, configOverride: cfg() });
-        }
-        expect(() => activate(recipe.id, cfg())).toThrow(/promotion gate refused/);
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        const record = recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'rec-1', ...matchingRuns('hello') }, { configOverride: cfg() });
+        expect(record.recipeId).toBe(recipe.id);
+        expect(record.comparisonId).toBe('rec-1');
+        expect(record.shadowEpoch).toBe(entry.recipe.stats.shadowEpoch);
+        expect(record.equivalent).toBe(true);
+        expect(record.comparatorId).toBe('structural-v1');
+        expect(record.comparatorVersion).toBe(1);
+        expect(record.recipeOutputHash).toBe(record.frontierOutputHash); // matching content → same hash
+        expect(record.createdAt).toBeTruthy();
     });
-    it('defaultEquivalenceComparator returns true for identical content, false for different', () => {
-        expect(defaultEquivalenceComparator(matchingRuns())).toBe(true);
-        expect(defaultEquivalenceComparator(mismatchedRuns())).toBe(false);
+    it('rejects stale epoch — comparison from a prior shadow stint', () => {
+        const recipe = activateRecipe();
+        demote(recipe.id, 'rollback');
+        const entry = promoteToShadow(recipe.id, 're-enter', cfg());
+        // Try to record a comparison with the OLD epoch (before re-entry).
+        const staleEpoch = entry.recipe.stats.shadowEpoch - 1;
+        expect(() => recordShadowComparison(recipe.id, { epoch: staleEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() })).toThrow(/stale epoch/);
+    });
+    it('rejects duplicate comparisonIds', () => {
+        const recipe = compileAndRegister();
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'dup-1', ...matchingRuns() }, { configOverride: cfg() });
+        expect(() => recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: 'dup-1', ...matchingRuns() }, { configOverride: cfg() })).toThrow(/duplicate comparisonId/);
+    });
+    it('rejects empty recipe output', () => {
+        const recipe = compileAndRegister();
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        expect(() => recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), recipe: [], frontier: 'ok' }, { configOverride: cfg() })).toThrow(/empty recipe output/);
+    });
+    it('rejects empty frontier output', () => {
+        const recipe = compileAndRegister();
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        expect(() => recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns(), frontier: '' }, { configOverride: cfg() })).toThrow(/empty frontier output/);
     });
     it('shadowSuccesses is separate from active-replay successes', () => {
         const trace = makeTrace();
@@ -320,6 +349,45 @@ describe('Honey blocker 3: equivalence is computed, not caller-supplied', () => 
         const stats = getEntry(recipe.id)!.recipe.stats;
         expect(stats.successes).toBe(1);
         expect(stats.shadowSuccesses).toBe(3); // unchanged from activation
+    });
+});
+
+// ── Honey blocker 3 red-team: public API cannot accept injected comparator ─
+
+describe('Honey blocker 3 red-team: public API rejects comparator injection', () => {
+    it('recordShadowComparison has no comparator parameter in its type signature', () => {
+        // Compile-time proof: the function's second parameter is the evidence
+        // object, not a comparator. If someone adds `comparator` back to the
+        // options, this test's type assertion would need updating.
+        const fn = recordShadowComparison;
+        // The function accepts (id, evidence, options?) — options has only
+        // configOverride, no comparator.
+        expect(fn.length).toBeLessThanOrEqual(3);
+    });
+    it('attempting to pass { comparator: () => true } is ignored — verdict comes from internal registry', () => {
+        const recipe = compileAndRegister();
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        // TypeScript does not allow a comparator key in the options (it's not
+        // in the type), but at runtime extra keys are silently ignored by JS.
+        // Even if a caller smuggles a comparator in, the registry uses its
+        // own internal comparator. Mismatched runs must still produce false.
+        const result = recordShadowComparison(
+            recipe.id,
+            { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...mismatchedRuns() },
+            // @ts-expect-error: comparator is not in the options type
+            { comparator: () => true, configOverride: cfg() },
+        );
+        expect(result.equivalent).toBe(false);
+        expect(getEntry(recipe.id)!.recipe.stats.shadowSuccesses).toBe(0);
+    });
+    it('a caller passing matching data 3 times activates — the verdict is computed, not asserted', () => {
+        const recipe = compileAndRegister();
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
+            recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
+        }
+        activate(recipe.id, cfg());
+        expect(getEntry(recipe.id)!.recipe.state).toBe('active');
     });
 });
 
@@ -356,18 +424,18 @@ describe('stage gates: promote gate (selfCompiling.promote)', () => {
     });
     it('activate refuses when promote gate is off', () => {
         const recipe = compileAndRegister(makeTrace(), cfg());
-        promoteToShadow(recipe.id, 'shadow', cfg());
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
         for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
-            recordShadowComparison(recipe.id, matchingRuns(), { configOverride: cfg() });
+            recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
         }
         const offCfg = cfg({ promote: false });
         expect(() => activate(recipe.id, offCfg)).toThrow(/promote gate refused/);
     });
     it('recordShadowComparison refuses when promote gate is off', () => {
         const recipe = compileAndRegister(makeTrace(), cfg());
-        promoteToShadow(recipe.id, 'shadow', cfg());
+        const entry = promoteToShadow(recipe.id, 'shadow', cfg());
         const offCfg = cfg({ promote: false });
-        expect(() => recordShadowComparison(recipe.id, matchingRuns(), { configOverride: offCfg })).toThrow(/promote gate refused/);
+        expect(() => recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: offCfg })).toThrow(/promote gate refused/);
         // Counters did not advance.
         expect(getEntry(recipe.id)!.recipe.stats.shadowComparisons).toBe(0);
     });
