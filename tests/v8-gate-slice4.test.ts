@@ -96,52 +96,15 @@ describe('v8 hard gate — slice 4 flag-off invariant', () => {
     });
 });
 
-describe('v8 hard gate — slice 4 measured-only rule', () => {
-    it('#4 clustering scores must be labeled as estimates, never measurements', () => {
-        interface ClusterScore {
-            clusterId: string; taskType: string; frequency: number;
-            outcomeStability: number; successRate: number; _confidence: 'estimate';
-        }
-        const score: ClusterScore = {
-            clusterId: 'c1', taskType: 'research', frequency: 0.85,
-            outcomeStability: 0.72, successRate: 0.91, _confidence: 'estimate',
-        };
-        expect(score._confidence).toBe('estimate');
-    });
-
-    it('#5 compile-queue panel is READ-ONLY — no compilation decisions from estimates', () => {
-        interface CompileQueuePanelItem {
-            clusterId: string; taskType: string; signature: string;
-            frequency: number; outcomeStability: number; successRate: number;
-            _confidence: 'estimate';
-        }
-        const item: CompileQueuePanelItem = {
-            clusterId: 'c1', taskType: 'research',
-            signature: 'research::web_search->browse_url',
-            frequency: 0.85, outcomeStability: 0.72, successRate: 0.91,
-            _confidence: 'estimate',
-        };
-        expect((item as Record<string, unknown>).compile).toBeUndefined();
-        expect((item as Record<string, unknown>).promote).toBeUndefined();
-        expect((item as Record<string, unknown>).select).toBeUndefined();
-        expect((item as Record<string, unknown>).approve).toBeUndefined();
-    });
-
-    it('#6 autopilot run classification must not report estimated cost as measured', () => {
-        interface AutopilotRun {
-            timestamp: string; duration: number; tokensUsed: number; cost: number;
-            classification: string; summary: string; toolsUsed: string[];
-            skipped?: boolean; skipReason?: string;
-        }
-        const run: AutopilotRun & Record<string, unknown> = {
-            timestamp: new Date().toISOString(), duration: 5000, tokensUsed: 150,
-            cost: 0.002, classification: 'ok', summary: 'test', toolsUsed: ['web_search'],
-        };
-        expect(run.estimatedCost).toBeUndefined();
-        expect(run.projectedCost).toBeUndefined();
-        expect(run.costEstimate).toBeUndefined();
-    });
-});
+// NOTE: Tests #4-6 (measured-only rule) moved to
+// tests/v8-slice4-measured-only.test.ts. That file does NOT mock
+// recognizeCluster.js — it mocks only the trajectory data source and
+// calls the real runClustering() production function. The tests
+// inspect Object.keys() on the actual TaskCluster objects returned by
+// scoreCluster(), proving at runtime that the production output carries
+// no _confidence/estimated/projected or compile/promote/select/approve
+// fields. If a forbidden field is added to the production type, the real
+// scoreCluster() return value includes it and the test fails.
 
 // GATE 3 — NAV VISIBILITY (flag-off = no compile-queue nav)
 
