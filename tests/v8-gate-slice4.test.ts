@@ -17,6 +17,7 @@ import { describe, it, expect, vi, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { execFileSync } from 'child_process';
 
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -34,6 +35,19 @@ vi.mock('../src/agent/recognizeCluster.js', () => {
 
 const ROOT = mkdtempSync(join(tmpdir(), 'titan-gate-s4-'));
 afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
+
+function runTypeGate(filename: string): void {
+    execFileSync(join(process.cwd(), 'node_modules', '.bin', 'tsc'), [
+        '--noEmit',
+        '--strict',
+        '--skipLibCheck',
+        '--module', 'ESNext',
+        '--moduleResolution', 'bundler',
+        '--target', 'ES2022',
+        join('src', 'storage', 'pg.d.ts'),
+        join('tests', 'type-gates', filename),
+    ], { cwd: process.cwd(), stdio: 'pipe' });
+}
 
 describe('v8 hard gate — slice 4 flag-off invariant', () => {
     it('#1 autopilot without recognize: the scheduler runs the v7 checklist loop unchanged', async () => {
@@ -97,49 +111,16 @@ describe('v8 hard gate — slice 4 flag-off invariant', () => {
 });
 
 describe('v8 hard gate — slice 4 measured-only rule', () => {
-    it('#4 clustering scores must be labeled as estimates, never measurements', () => {
-        interface ClusterScore {
-            clusterId: string; taskType: string; frequency: number;
-            outcomeStability: number; successRate: number; _confidence: 'estimate';
-        }
-        const score: ClusterScore = {
-            clusterId: 'c1', taskType: 'research', frequency: 0.85,
-            outcomeStability: 0.72, successRate: 0.91, _confidence: 'estimate',
-        };
-        expect(score._confidence).toBe('estimate');
+    it('#4 TaskCluster carries no estimate/confidence labels', () => {
+        runTypeGate('slice4-cluster-labels.ts');
     });
 
-    it('#5 compile-queue panel is READ-ONLY — no compilation decisions from estimates', () => {
-        interface CompileQueuePanelItem {
-            clusterId: string; taskType: string; signature: string;
-            frequency: number; outcomeStability: number; successRate: number;
-            _confidence: 'estimate';
-        }
-        const item: CompileQueuePanelItem = {
-            clusterId: 'c1', taskType: 'research',
-            signature: 'research::web_search->browse_url',
-            frequency: 0.85, outcomeStability: 0.72, successRate: 0.91,
-            _confidence: 'estimate',
-        };
-        expect((item as Record<string, unknown>).compile).toBeUndefined();
-        expect((item as Record<string, unknown>).promote).toBeUndefined();
-        expect((item as Record<string, unknown>).select).toBeUndefined();
-        expect((item as Record<string, unknown>).approve).toBeUndefined();
+    it('#5 TaskCluster has no action fields — panel is READ-ONLY', () => {
+        runTypeGate('slice4-cluster-actions.ts');
     });
 
-    it('#6 autopilot run classification must not report estimated cost as measured', () => {
-        interface AutopilotRun {
-            timestamp: string; duration: number; tokensUsed: number; cost: number;
-            classification: string; summary: string; toolsUsed: string[];
-            skipped?: boolean; skipReason?: string;
-        }
-        const run: AutopilotRun & Record<string, unknown> = {
-            timestamp: new Date().toISOString(), duration: 5000, tokensUsed: 150,
-            cost: 0.002, classification: 'ok', summary: 'test', toolsUsed: ['web_search'],
-        };
-        expect(run.estimatedCost).toBeUndefined();
-        expect(run.projectedCost).toBeUndefined();
-        expect(run.costEstimate).toBeUndefined();
+    it('#6 AutopilotRun has no estimated/projected cost fields', () => {
+        runTypeGate('slice4-autopilot-cost.ts');
     });
 });
 

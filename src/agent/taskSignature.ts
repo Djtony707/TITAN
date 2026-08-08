@@ -116,7 +116,7 @@ const ENTITY_PATTERNS: Array<{ regex: RegExp; type: string; extractGroup: number
  */
 export function extractTaskSignature(task: string): TaskSignature {
     const lower = task.toLowerCase();
-    
+
     // Find the first matching intent
     let intent = 'unknown';
     for (const pattern of INTENT_PATTERNS) {
@@ -125,11 +125,11 @@ export function extractTaskSignature(task: string): TaskSignature {
             break;
         }
     }
-    
+
     // Extract typed entities
     const entities: TaskEntity[] = [];
     const seenPositions = new Set<number>();
-    
+
     for (const pattern of ENTITY_PATTERNS) {
         // Ensure the regex has the global flag so exec() advances
         const flags = pattern.regex.flags.includes("g") ? pattern.regex.flags : pattern.regex.flags + "g";
@@ -146,15 +146,15 @@ export function extractTaskSignature(task: string): TaskSignature {
             });
         }
     }
-    
+
     // Sort entities by position for deterministic ordering
     entities.sort((a, b) => a.position - b.position);
-    
+
     // Build the canonical signature string
     const entityTypes = entities.map(e => e.type);
     const signature = `${intent}::${entityTypes.join('::')}`;
     const hash = createHash('sha256').update(signature).digest('hex').slice(0, 16);
-    
+
     return { intent, entities, signature, hash };
 }
 

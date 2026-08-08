@@ -132,7 +132,7 @@ function scoreCluster(group: SignedTrajectory[]): TaskCluster {
     const successRate = successCount / frequency;
     const stability = computeStability(group.filter(t => t.success));
     const score = frequency * stability * successRate;
-    
+
     // Find the dominant tool sequence
     const seqCounts = new Map<string, string[]>();
     for (const t of group) {
@@ -145,17 +145,17 @@ function scoreCluster(group: SignedTrajectory[]): TaskCluster {
         const count = group.filter(t => t.toolSequence.join(' → ') === key).length;
         if (count > maxCount) { maxCount = count; dominantSeq = seq; }
     }
-    
+
     // Pick up to 3 example tasks
     const examples = group.slice(0, 3).map(t => t.task.slice(0, 200));
-    
+
     const timestamps = group.map(t => {
         // We don't have timestamps on SignedTrajectory, so use now
         return Date.now();
     });
     const firstSeen = new Date(Math.min(...timestamps)).toISOString();
     const lastUpdated = new Date(Math.max(...timestamps)).toISOString();
-    
+
     return {
         signature: group[0].signature,
         frequency,
@@ -181,7 +181,7 @@ export function runClustering(
     if (trajectories.length === 0) {
         return { clusters: [], trajectoryCount: 0 };
     }
-    
+
     // Convert to the shape signTrajectories expects
     const shaped = trajectories.map(t => ({
         id: t.id,
@@ -191,10 +191,10 @@ export function runClustering(
         rounds: t.rounds,
         toolSequence: t.toolSequence,
     }));
-    
+
     const signed = signTrajectories(shaped);
     const groups = groupBySignature(signed);
-    
+
     const clusters: TaskCluster[] = [];
     for (const [, group] of groups) {
         if (group.length < MIN_CLUSTER_SIZE) continue;
@@ -203,9 +203,9 @@ export function runClustering(
         if (cluster.outcomeStability < MIN_STABILITY) continue;
         clusters.push(cluster);
     }
-    
+
     clusters.sort((a, b) => b.score - a.score);
-    
+
     return {
         clusters: clusters.slice(0, MAX_QUEUE_SIZE),
         trajectoryCount: trajectories.length,
@@ -216,19 +216,19 @@ export function runClustering(
  * Run the nightly clustering pass and persist results.
  * Called from autopilot when mode === "recognize".
  */
-export function runNightlyClustering(): { 
-    clusters: TaskCluster[]; 
+export function runNightlyClustering(): {
+    clusters: TaskCluster[];
     newClusters: TaskCluster[];
     trajectoryCount: number;
 } {
     const store = readClusterStore();
     const prevHashes = new Set(Object.keys(store.clusters));
-    
+
     const { clusters, trajectoryCount } = runClustering(500);
-    
+
     const newClusters: TaskCluster[] = [];
     const updated: Record<string, TaskCluster> = {};
-    
+
     for (const cluster of clusters) {
         const hash = cluster.signature.hash;
         const existing = store.clusters[hash];
@@ -242,7 +242,7 @@ export function runNightlyClustering(): {
         }
         updated[hash] = cluster;
     }
-    
+
     // Keep clusters that didn't appear in this run but were previously known
     // (they may reappear later — don't lose them)
     for (const [hash, cluster] of Object.entries(store.clusters)) {
@@ -250,16 +250,16 @@ export function runNightlyClustering(): {
             updated[hash] = cluster;
         }
     }
-    
+
     store.clusters = updated;
     store.lastRunAt = new Date().toISOString();
     store.lastTrajectoryCount = trajectoryCount;
     store.lastClusterCount = clusters.length;
     writeClusterStore(store);
-    
-    logger.info(COMPONENT, 
+
+    logger.info(COMPONENT,
         `Clustering complete: ${clusters.length} clusters from ${trajectoryCount} trajectories, ${newClusters.length} new`);
-    
+
     return { clusters, newClusters, trajectoryCount };
 }
 
