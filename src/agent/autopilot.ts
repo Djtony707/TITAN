@@ -350,6 +350,26 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
 
         // ── Recognize mode: nightly task-pattern clustering (v8 Slice 4) ──
         if (autopilotMode === 'recognize') {
+            // Master-flag gate: recognize mode is part of the self-compiling
+            // pipeline. With selfCompiling.enabled=false TITAN must stay
+            // v7 byte-identical — the scheduler skips instead of clustering.
+            if (!config.selfCompiling?.enabled) {
+                logger.info(COMPONENT, 'RECOGNIZE skipped: selfCompiling.enabled=false');
+                const run: AutopilotRun = {
+                    timestamp: new Date().toISOString(),
+                    duration: 0,
+                    tokensUsed: 0,
+                    cost: 0,
+                    classification: 'ok',
+                    summary: 'Skipped: self-compiling disabled (master flag off)',
+                    toolsUsed: [],
+                    skipped: true,
+                    skipReason: 'self_compiling_disabled',
+                };
+                lastRun = run;
+                appendRun(run);
+                return { run, delivered: false };
+            }
             return await runRecognizeAutopilot(config, startTime, dryRun);
         }
 
