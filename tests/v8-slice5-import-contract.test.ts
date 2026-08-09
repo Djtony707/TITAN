@@ -93,6 +93,13 @@ describe("v8 slice 5 — flag-off import contract (v7 modules don't import promo
     });
 
     it("#5 flag-off: no promotion/compiler modules are imported", async () => {
+        // Reset flags — in the full suite, another test file may have already
+        // imported recipeRegistry.js, setting the mock flag to true. The mock
+        // factory only fires on first import; the flag stays true across tests.
+        // We reset here so the assertion reflects THIS test's import chain.
+        flags.wasRecipeRegistryImported = false;
+        flags.wasRecipeCompilerImported = false;
+
         // Import the v7 surface — if any pulls in a v8 promotion module,
         // the corresponding mock flag becomes true and this test FAILS.
         await import("../src/recipes/store.js");
