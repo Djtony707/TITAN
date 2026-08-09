@@ -20,6 +20,12 @@ import {
 } from '../src/agent/recipeRegistry.js';
 import { persistTrace, type PersistedTrace } from '../src/agent/traceStore.js';
 import { escalateOnFailure, renderReplayResult, routeCompiled } from '../src/agent/routerMiddleware.js';
+import type { TitanConfig } from '../src/config/schema.js';
+
+/** Config override with all selfCompiling gates enabled for testing. */
+const GATES_ON: TitanConfig = {
+    selfCompiling: { enabled: true, record: true, compile: true, promote: true, route: true },
+} as TitanConfig;
 
 let originalHome: string | undefined;
 let originalTitanHome: string | undefined;
@@ -73,16 +79,16 @@ function recordComparison(id: string, equivalent: boolean): void {
         comparisonId: `comparison-${comparisonSeq++}`,
         recipe,
         frontier,
-    });
+    }, { configOverride: GATES_ON });
 }
 
 /** Compile + register + shadow-pass + activate a recipe the honest way. */
 function activateRecipe(trace: PersistedTrace): CompiledRecipe {
     const recipe = compileRecipe(trace);
-    registerRecipe(recipe);
-    promoteToShadow(recipe.id);
+    registerRecipe(recipe, GATES_ON);
+    promoteToShadow(recipe.id, 'entered shadow evaluation', GATES_ON);
     for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordComparison(recipe.id, true);
-    activate(recipe.id);
+    activate(recipe.id, GATES_ON);
     return getEntry(recipe.id)!.recipe;
 }
 
@@ -94,7 +100,7 @@ describe('recipeRegistry', () => {
         persistTrace(trace);
         const recipe = compileRecipe(trace);
 
-        const entry = registerRecipe(recipe);
+        const entry = registerRecipe(recipe, GATES_ON);
 
         expect(entry.recipe.state).toBe('candidate');
         // Measured: mean of (1000+500) over 1 source trace — not narrated.
@@ -104,29 +110,29 @@ describe('recipeRegistry', () => {
     it('baseline is 0 when source traces carry no token counts', () => {
         const trace = makeTrace({ tokens: undefined });
         persistTrace(trace);
-        const entry = registerRecipe(compileRecipe(trace));
+        const entry = registerRecipe(compileRecipe(trace), GATES_ON);
         expect(entry.baselineTokens).toBe(0);
     });
 
     it('enforces the state machine: no candidate → active shortcut', () => {
         const recipe = compileRecipe(makeTrace());
-        registerRecipe(recipe);
-        expect(() => activate(recipe.id)).toThrow(/illegal transition|gate refused/);
+        registerRecipe(recipe, GATES_ON);
+        expect(() => activate(recipe.id, GATES_ON)).toThrow(/illegal transition|gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('candidate');
     });
 
     it('promotion gate refuses shadow recipes without enough equivalent comparisons', () => {
         const recipe = compileRecipe(makeTrace());
-        registerRecipe(recipe);
-        promoteToShadow(recipe.id);
+        registerRecipe(recipe, GATES_ON);
+        promoteToShadow(recipe.id, 'entered shadow evaluation', GATES_ON);
 
         recordComparison(recipe.id, true);
         recordComparison(recipe.id, true);
-        expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
+        expect(() => activate(recipe.id, GATES_ON)).toThrow(/promotion gate refused/);
 
         recordComparison(recipe.id, false); // one mismatch kills it
         recordComparison(recipe.id, true);
-        expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
+        expect(() => activate(recipe.id, GATES_ON)).toThrow(/promotion gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
     });
 
@@ -159,12 +165,12 @@ describe('recipeRegistry', () => {
         demote(recipe.id, 'manual rollback');
         expect(getEntry(recipe.id)!.recipe.state).toBe('demoted');
 
-        promoteToShadow(recipe.id); // re-entry allowed at shadow
+        promoteToShadow(recipe.id, 're-entry', GATES_ON); // re-entry allowed at shadow
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
 
         retire(recipe.id, 'superseded');
         expect(getEntry(recipe.id)!.recipe.state).toBe('retired');
-        expect(() => promoteToShadow(recipe.id)).toThrow(/illegal transition/);
+        expect(() => promoteToShadow(recipe.id, 'illegal', GATES_ON)).toThrow(/illegal transition/);
     });
 
     it('persists across cache invalidation and aggregates compiler stats', () => {
@@ -207,10 +213,10 @@ describe('routerMiddleware', () => {
     it('two active recipes matching one signature = miss (ambiguity rejection)', () => {
         const a = activateRecipe(makeTrace({ traceId: 'trAAAAAA' }));
         const b = compileRecipe(makeTrace({ traceId: 'trBBBBBB' }), { id: 'second-recipe' });
-        registerRecipe(b);
-        promoteToShadow(b.id);
+        registerRecipe(b, GATES_ON);
+        promoteToShadow(b.id, 'entered shadow evaluation', GATES_ON);
         for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordComparison(b.id, true);
-        activate(b.id);
+        activate(b.id, GATES_ON);
 
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [a, getEntry(b.id)!.recipe] });
         expect(d.kind).toBe('miss');

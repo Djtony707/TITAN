@@ -34,14 +34,24 @@ import type { CompiledRecipe } from './recipeCompiler.js';
 import { readTraces } from './traceStore.js';
 import type { TitanConfig } from '../config/schema.js';
 import { shouldCompile, shouldPromote } from './v8Gates.js';
+import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'RecipeRegistry';
 
-/** Promotion gate thresholds. Strict by design: a regression that reaches
+/** Gate threshold constants. Strict by design: a regression that reaches
  *  `active` costs user trust; a recipe stuck in shadow costs nothing. */
 export const SHADOW_MIN_COMPARISONS = 3;
 export const SHADOW_MIN_SUCCESS_RATE = 1.0;
+
+/** Resolve the effective config: override wins, otherwise load the real config.
+ *  In production (no override), the real config gates COMPILE/PROMOTE. Tests
+ *  pass `configOverride` to exercise the gate without constructing a full
+ *  config object. */
+function resolveConfig(override?: TitanConfig): TitanConfig {
+    if (override) return override;
+    return loadConfig();
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -274,7 +284,7 @@ export function registerRecipe(
     recipe: CompiledRecipe,
     configOverride?: TitanConfig,
 ): RegistryEntry {
-    if (configOverride && !shouldCompile(configOverride)) {
+    if (!shouldCompile(resolveConfig(configOverride))) {
         throw new Error(`RecipeRegistry: compile gate refused registration of ${recipe.id} — selfCompiling.compile is off`);
     }
     const reg = load();
@@ -325,7 +335,7 @@ export function promoteToShadow(
     reason = 'entered shadow evaluation',
     configOverride?: TitanConfig,
 ): RegistryEntry {
-    if (configOverride && !shouldPromote(configOverride)) {
+    if (!shouldPromote(resolveConfig(configOverride))) {
         throw new Error(`RecipeRegistry: promote gate refused shadow entry for ${id} — selfCompiling.promote is off`);
     }
     const reg = load();
@@ -359,7 +369,7 @@ export function activate(
     id: string,
     configOverride?: TitanConfig,
 ): RegistryEntry {
-    if (configOverride && !shouldPromote(configOverride)) {
+    if (!shouldPromote(resolveConfig(configOverride))) {
         throw new Error(`RecipeRegistry: promote gate refused activation of ${id} — selfCompiling.promote is off`);
     }
     const reg = load();
@@ -437,7 +447,7 @@ export function recordShadowComparison(
     },
     options?: { configOverride?: TitanConfig },
 ): ShadowComparisonRecord {
-    if (options?.configOverride && !shouldPromote(options.configOverride)) {
+    if (!shouldPromote(resolveConfig(options?.configOverride))) {
         throw new Error(`RecipeRegistry: promote gate refused shadow comparison for ${id} — selfCompiling.promote is off`);
     }
     // Validate evidence shape.
