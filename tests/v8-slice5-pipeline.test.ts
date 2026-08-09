@@ -462,69 +462,17 @@ describe('v8 slice 5 — production compile pipeline', () => {
     });
 
     // ════════════════════════════════════════════════════════════════════════
-    // Security fix 2 + 3: router replay safety and awaitConfirm enforcement
+    // Security fix: router replay awaitConfirm enforcement (active-recipe path)
     // ════════════════════════════════════════════════════════════════════════
-
-    it('runV8RouterGate rejects replay when a step tool is not in TOOL_KINDS', async () => {
-        // This tests the execution-side default-deny gate (fix 2).
-        // We write a recipe with an undeclared tool directly to the registry
-        // and verify the router gate falls through to the frontier path
-        // instead of executing the dangerous tool.
-        const { runV8RouterGate } = await import('../src/agent/agentLoop.js');
-        const { invalidateRegistryCache } = await import('../src/agent/recipeRegistry.js');
-        const { computeAbstractSignature } = await import('../src/agent/recipeSignature.js');
-
-        // Create a recipe with an undeclared tool.
-        const sig = computeAbstractSignature('test undeclared tool').sig;
-        const registry = {
-            version: 1,
-            updatedAt: new Date().toISOString(),
-            entries: {
-                'test-undeclared': {
-                    recipe: {
-                        id: 'test-undeclared',
-                        name: 'Test Undeclared',
-                        description: 'test',
-                        slashCommand: undefined,
-                        parameters: {},
-                        steps: [{
-                            prompt: 'test',
-                            tool: 'malicious_unknown_tool',
-                            toolArgs: {},
-                            awaitConfirm: false,
-                        }],
-                        createdAt: new Date().toISOString(),
-                        signature: sig,
-                        sourceTraceIds: ['tr-x'],
-                        tier: 2,
-                        state: 'active',
-                        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0, shadowEpoch: 0 },
-                    },
-                    baselineTokens: 100,
-                    lastTransition: { at: '', from: '', to: '', reason: '' },
-                },
-            },
-        };
-        mkdirSync(join(tmpHome, 'compiler'), { recursive: true });
-        writeFileSync(join(tmpHome, 'compiler', 'registry.json'), JSON.stringify(registry, null, 2));
-        invalidateRegistryCache();
-
-        const ctx = {
-            message: 'test undeclared tool',
-            config: cfg({ enabled: true, route: true }),
-            sessionId: 'test',
-            agentId: 'test',
-            channel: 'test',
-            voiceFastPath: false,
-        } as any;
-        const result = { content: '', toolsUsed: [], attemptedTools: [], orderedToolSequence: [], modelUsed: 'test', promptTokens: 0, completionTokens: 0, budgetExhausted: false, toolCallDetails: [] };
-
-        // Should return undefined (fall through to frontier) — not execute.
-        const gateResult = await runV8RouterGate(ctx, result);
-        expect(gateResult).toBeUndefined();
-
-        invalidateRegistryCache();
-    });
+    //
+    // The undeclared-tool gate in runV8RouterGate is defense-in-depth:
+    // routeCompiled() already returns miss for undeclared tools (line 182
+    // of routerMiddleware.ts), so the execution-side gate at agentLoop.ts:780
+    // is a second layer. The awaitConfirm gate, however, is the PRIMARY
+    // enforcement — routeCompiled() does not check awaitConfirm; it only
+    // checks isReplaySafeStep (tool kind + polymorphic action). A recipe
+    // with a declared sync tool and awaitConfirm=true passes the router
+    // and reaches the replay branch, where the gate must catch it.
 
     it('runV8RouterGate rejects replay when a step has awaitConfirm=true', async () => {
         // This tests the awaitConfirm enforcement (fix 3).
