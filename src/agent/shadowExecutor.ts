@@ -21,10 +21,11 @@
  */
 
 import { listEntries, recordShadowComparison, type RegistryEntry } from './recipeRegistry.js';
-import { resolveSlots, type ResolvedStep } from './routerMiddleware.js';
+import { resolveSlots, isReplaySafeStep, type ResolvedStep } from './routerMiddleware.js';
 import { computeAbstractSignature } from './recipeSignature.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
 import { shouldPromote } from './v8Gates.js';
+import { TOOL_KINDS } from './toolIntent.js';
 import type { TitanConfig } from '../config/schema.js';
 import type { ToolCall } from '../providers/base.js';
 import logger from '../utils/logger.js';
@@ -91,6 +92,33 @@ async function runOneShadowComparison(
     if (!resolvedSteps) {
         logger.debug(COMPONENT, `Shadow comparison skipped for ${recipe.id}: slot resolution failed`);
         return;
+    }
+
+    // Honey audit fix: replay-safety / default-deny / awaitConfirm enforcement
+    // on the SHADOW path. Before this, shadow execution called executeTools()
+    // directly with no safety checks — a shadow recipe containing a
+    // write/send/destructive tool or an awaitConfirm=true step could execute
+    // during shadow evaluation without human approval. Shadow comparison is
+    // a background evaluation, NOT a user-requested action: it must only
+    // run replay-safe (sync, read-only) steps. Any step that requires
+    // confirmation or is not replay-safe is skipped.
+    for (const step of resolvedSteps) {
+        // 1. Default-deny: tool must be declared in TOOL_KINDS.
+        if (!(step.tool in TOOL_KINDS)) {
+            logger.warn(COMPONENT, `Shadow comparison skipped for ${recipe.id}: step tool "${step.tool}" not declared in TOOL_KINDS — not replay-safe for shadow execution`);
+            return;
+        }
+        // 2. Replay-safety: only sync (read-only) tools may execute in shadow.
+        if (!isReplaySafeStep(step.tool, step.args)) {
+            logger.warn(COMPONENT, `Shadow comparison skipped for ${recipe.id}: step tool "${step.tool}" is not replay-safe (non-sync or polymorphic non-read action) — shadow execution is read-only evaluation`);
+            return;
+        }
+        // 3. awaitConfirm enforcement: a step requiring human approval must
+        //    never auto-execute in shadow.
+        if (step.awaitConfirm) {
+            logger.warn(COMPONENT, `Shadow comparison skipped for ${recipe.id}: step tool "${step.tool}" has awaitConfirm=true — shadow execution cannot run confirmed steps without approval`);
+            return;
+        }
     }
 
     // Execute the recipe's tool steps.

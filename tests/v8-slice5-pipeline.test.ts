@@ -586,4 +586,129 @@ describe('v8 slice 5 — production compile pipeline', () => {
 
         invalidateRegistryCache();
     });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Honey audit fix: shadow-path safety enforcement — negative tests
+    // that verify executeTools is NOT called for unsafe shadow steps.
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Helper: seed a shadow recipe directly to the registry file.
+     * Bypasses the compile gate so we can control the exact recipe shape.
+     */
+    function seedShadowRecipe(recipeId: string, tool: string, awaitConfirm: boolean, sig: string): void {
+        const registry = {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            entries: {
+                [recipeId]: {
+                    recipe: {
+                        id: recipeId,
+                        name: `Test ${recipeId}`,
+                        description: 'test shadow recipe',
+                        slashCommand: undefined,
+                        parameters: {},
+                        steps: [{
+                            prompt: 'test',
+                            tool,
+                            toolArgs: { path: '/tmp/test.txt' },
+                            awaitConfirm,
+                        }],
+                        createdAt: new Date().toISOString(),
+                        signature: sig,
+                        sourceTraceIds: ['tr-x'],
+                        tier: 2,
+                        state: 'shadow',
+                        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0, shadowEpoch: 0 },
+                    },
+                    baselineTokens: 100,
+                    lastTransition: { at: '', from: '', to: '', reason: '' },
+                },
+            },
+        };
+        mkdirSync(join(tmpHome, 'compiler'), { recursive: true });
+        writeFileSync(join(tmpHome, 'compiler', 'registry.json'), JSON.stringify(registry, null, 2));
+        invalidateRegistryCache();
+    }
+
+    it('shadow execution does NOT call executeTools for a destructive tool (shell)', async () => {
+        const sig = computeAbstractSignature('run shell command').sig;
+        seedShadowRecipe('test-destructive', 'shell', false, sig);
+
+        // Spy on executeTools in the toolRunner module.
+        const toolRunnerModule = await import('../src/agent/toolRunner.js');
+        const spy = vi.spyOn(toolRunnerModule, 'executeTools');
+        spy.mockResolvedValue([]);
+
+        await runShadowComparisons('run shell command', [{ name: 'shell', content: 'ok' }], cfg());
+
+        // executeTools must NOT have been called — shell is destructive.
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('shadow execution does NOT call executeTools for a risky tool (write_file)', async () => {
+        const sig = computeAbstractSignature('write file content').sig;
+        seedShadowRecipe('test-risky', 'write_file', false, sig);
+
+        const toolRunnerModule = await import('../src/agent/toolRunner.js');
+        const spy = vi.spyOn(toolRunnerModule, 'executeTools');
+        spy.mockResolvedValue([]);
+
+        await runShadowComparisons('write file content', [{ name: 'write_file', content: 'ok' }], cfg());
+
+        // executeTools must NOT have been called — write_file is risky (non-sync).
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('shadow execution does NOT call executeTools when awaitConfirm=true', async () => {
+        // read_file IS a sync replay-safe tool, but awaitConfirm=true
+        // must still block shadow execution.
+        const sig = computeAbstractSignature('read confirmed file').sig;
+        seedShadowRecipe('test-shadow-confirm', 'read_file', true, sig);
+
+        const toolRunnerModule = await import('../src/agent/toolRunner.js');
+        const spy = vi.spyOn(toolRunnerModule, 'executeTools');
+        spy.mockResolvedValue([]);
+
+        await runShadowComparisons('read confirmed file', [{ name: 'read_file', content: 'ok' }], cfg());
+
+        // executeTools must NOT have been called — awaitConfirm blocks shadow.
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('shadow execution does NOT call executeTools for an undeclared tool', async () => {
+        const sig = computeAbstractSignature('use unknown tool').sig;
+        seedShadowRecipe('test-undeclared-shadow', 'malicious_unknown_tool', false, sig);
+
+        const toolRunnerModule = await import('../src/agent/toolRunner.js');
+        const spy = vi.spyOn(toolRunnerModule, 'executeTools');
+        spy.mockResolvedValue([]);
+
+        await runShadowComparisons('use unknown tool', [{ name: 'malicious_unknown_tool', content: 'ok' }], cfg());
+
+        // executeTools must NOT have been called — tool not in TOOL_KINDS.
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('shadow execution DOES call executeTools for a safe read-only tool (read_file)', async () => {
+        // Positive test: a shadow recipe with a safe sync tool should execute.
+        const sig = computeAbstractSignature('read file content').sig;
+        seedShadowRecipe('test-safe-shadow', 'read_file', false, sig);
+
+        const toolRunnerModule = await import('../src/agent/toolRunner.js');
+        const spy = vi.spyOn(toolRunnerModule, 'executeTools');
+        spy.mockResolvedValue([
+            { toolCallId: 'shadow-test-safe-shadow-0', name: 'read_file', content: 'ok', success: true, durationMs: 5 },
+        ]);
+
+        await runShadowComparisons('read file content', [{ name: 'read_file', content: 'ok' }], cfg());
+
+        // executeTools SHOULD have been called — read_file is safe.
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
 });
