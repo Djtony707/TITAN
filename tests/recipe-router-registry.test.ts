@@ -24,6 +24,7 @@ import { escalateOnFailure, renderReplayResult, routeCompiled } from '../src/age
 let originalHome: string | undefined;
 let originalTitanHome: string | undefined;
 let tmpHome: string;
+let comparisonSeq: number;
 
 beforeEach(() => {
     originalHome = process.env.HOME;
@@ -31,6 +32,7 @@ beforeEach(() => {
     tmpHome = mkdtempSync(join(tmpdir(), 'titan-registry-'));
     process.env.HOME = tmpHome;
     process.env.TITAN_HOME = tmpHome;
+    comparisonSeq = 0;
     invalidateRegistryCache();
 });
 
@@ -62,12 +64,24 @@ function makeTrace(overrides: Partial<PersistedTrace> = {}): PersistedTrace {
     };
 }
 
+function recordComparison(id: string, equivalent: boolean): void {
+    const epoch = getEntry(id)!.recipe.stats.shadowEpoch;
+    const recipe = [{ name: 'assistant', content: 'same output' }];
+    const frontier = [{ name: 'assistant', content: equivalent ? 'same output' : 'different output' }];
+    recordShadowComparison(id, {
+        epoch,
+        comparisonId: `comparison-${comparisonSeq++}`,
+        recipe,
+        frontier,
+    });
+}
+
 /** Compile + register + shadow-pass + activate a recipe the honest way. */
 function activateRecipe(trace: PersistedTrace): CompiledRecipe {
     const recipe = compileRecipe(trace);
     registerRecipe(recipe);
     promoteToShadow(recipe.id);
-    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(recipe.id, true);
+    for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordComparison(recipe.id, true);
     activate(recipe.id);
     return getEntry(recipe.id)!.recipe;
 }
@@ -106,12 +120,12 @@ describe('recipeRegistry', () => {
         registerRecipe(recipe);
         promoteToShadow(recipe.id);
 
-        recordShadowComparison(recipe.id, true);
-        recordShadowComparison(recipe.id, true);
+        recordComparison(recipe.id, true);
+        recordComparison(recipe.id, true);
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
 
-        recordShadowComparison(recipe.id, false); // one mismatch kills it
-        recordShadowComparison(recipe.id, true);
+        recordComparison(recipe.id, false); // one mismatch kills it
+        recordComparison(recipe.id, true);
         expect(() => activate(recipe.id)).toThrow(/promotion gate refused/);
         expect(getEntry(recipe.id)!.recipe.state).toBe('shadow');
     });
@@ -195,7 +209,7 @@ describe('routerMiddleware', () => {
         const b = compileRecipe(makeTrace({ traceId: 'trBBBBBB' }), { id: 'second-recipe' });
         registerRecipe(b);
         promoteToShadow(b.id);
-        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordShadowComparison(b.id, true);
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) recordComparison(b.id, true);
         activate(b.id);
 
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [a, getEntry(b.id)!.recipe] });
