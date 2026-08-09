@@ -21,17 +21,26 @@
  *   - src/agent/autopilot.ts — autopilot mode dispatch
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
 import { createHash } from 'crypto';
-import { TITAN_HOME } from '../utils/constants.js';
 import { getRecentTrajectories, type TaskTrajectory } from './trajectoryLogger.js';
 import { extractTaskSignature, signTrajectories, computeStability, type TaskSignature, type SignedTrajectory } from './taskSignature.js';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'RecognizeCluster';
 
-/** Where the cluster state is persisted. */
-const CLUSTER_STORE_PATH = join(TITAN_HOME, 'recognize-clusters.json');
+/** Where the cluster state is persisted. Resolved at call time so tests
+ *  can isolate per-fixture TITAN_HOME (same convention as traceStore.ts). */
+function clusterStorePath(): string {
+    const envHome = process.env.TITAN_HOME?.trim();
+    if (envHome) {
+        if (envHome.startsWith('~/')) return join(homedir(), envHome.slice(2), 'recognize-clusters.json');
+        if (envHome === '~') return join(homedir(), 'recognize-clusters.json');
+        return join(envHome, 'recognize-clusters.json');
+    }
+    return join(homedir(), '.titan', 'recognize-clusters.json');
+}
 
 /** Minimum trajectories in a cluster before it qualifies. */
 const MIN_CLUSTER_SIZE = 5;
@@ -87,8 +96,9 @@ export interface ClusterStore {
 
 function readClusterStore(): ClusterStore {
     try {
-        if (existsSync(CLUSTER_STORE_PATH)) {
-            return JSON.parse(readFileSync(CLUSTER_STORE_PATH, 'utf-8')) as ClusterStore;
+        const path = clusterStorePath();
+        if (existsSync(path)) {
+            return JSON.parse(readFileSync(path, 'utf-8')) as ClusterStore;
         }
     } catch (e) {
         logger.warn(COMPONENT, `Cluster store unreadable, starting fresh: ${(e as Error).message}`);
@@ -97,8 +107,9 @@ function readClusterStore(): ClusterStore {
 }
 
 function writeClusterStore(store: ClusterStore): void {
-    mkdirSync(TITAN_HOME, { recursive: true });
-    writeFileSync(CLUSTER_STORE_PATH, JSON.stringify(store, null, 2));
+    const path = clusterStorePath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(store, null, 2));
 }
 
 // ── Clustering ──────────────────────────────────────────────────────

@@ -373,6 +373,31 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
             return await runRecognizeAutopilot(config, startTime, dryRun);
         }
 
+        // ── Compile mode: compile qualifying clusters into recipes (v8 Slice 5) ──
+        if (autopilotMode === 'compile') {
+            // Master-flag gate: compile mode is part of the self-compiling
+            // pipeline. With selfCompiling.enabled=false TITAN must stay
+            // v7 byte-identical — the scheduler skips instead of compiling.
+            if (!config.selfCompiling?.enabled) {
+                logger.info(COMPONENT, 'COMPILE skipped: selfCompiling.enabled=false');
+                const run: AutopilotRun = {
+                    timestamp: new Date().toISOString(),
+                    duration: 0,
+                    tokensUsed: 0,
+                    cost: 0,
+                    classification: 'ok',
+                    summary: 'Skipped: self-compiling disabled (master flag off)',
+                    toolsUsed: [],
+                    skipped: true,
+                    skipReason: 'self_compiling_disabled',
+                };
+                lastRun = run;
+                appendRun(run);
+                return { run, delivered: false };
+            }
+            return await runCompileAutopilot(config, startTime, dryRun);
+        }
+
         // Get previous run summary for context
         const history = getRunHistory(1);
         const prevSummary = history.length > 0 ? history[history.length - 1].summary : undefined;
@@ -922,6 +947,75 @@ async function runRecognizeAutopilot(config: TitanConfig, startTime: number, dry
         };
         lastRun = run;
         appendRun(run);
+        return { run, delivered: false };
+    }
+}
+
+// ─── Compile autopilot (v8 Slice 5) ───────────────────────────────
+
+async function runCompileAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
+    logger.info(COMPONENT, 'COMPILE autopilot: running compile pipeline (cluster → recipe → shadow)');
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: 'Dry-run: would compile qualifying clusters into candidate recipes and promote to shadow.',
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
+
+    try {
+        const { runCompilePipeline } = await import('./compilePipeline.js');
+        const result = runCompilePipeline(config);
+        const duration = Date.now() - startTime;
+
+        const summary = [
+            `COMPILE: ${result.recipesCompiled} recipes compiled, ${result.recipesPromotedToShadow} promoted to shadow`,
+            `${result.skipped} skipped (${result.clustersExamined} clusters examined)`,
+        ].filter(Boolean).join(' — ');
+
+        const classification = result.recipesCompiled > 0 ? 'notable' : 'ok';
+
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification,
+            summary: summary.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+
+        return { run, delivered: false };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        logger.error(COMPONENT, `COMPILE autopilot error: ${(error as Error).message}`);
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'urgent',
+            summary: `COMPILE error: ${(error as Error).message}`.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
         return { run, delivered: false };
     }
 }
