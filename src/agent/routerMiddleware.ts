@@ -136,8 +136,12 @@ const POLYMORPHIC_READ_ACTIONS: Readonly<Record<string, ReadonlySet<string>>> = 
  * This is the default-deny replay set. Everything else escalates to
  * confirm-required. "Declared" is not "read-only" (Honey audit); "sync"
  * is not "read-only" for polymorphic tools (Honey re-audit).
+ *
+ * Exported for reuse by shadowExecutor.ts — shadow comparison must only
+ * execute replay-safe steps (Honey audit: a shadow recipe containing a
+ * write/send/destructive step must not execute during evaluation).
  */
-function isReplaySafeStep(tool: string, args: Record<string, unknown>): boolean {
+export function isReplaySafeStep(tool: string, args: Record<string, unknown>): boolean {
     if (!(tool in TOOL_KINDS)) return false;
     if (getToolKind(tool) !== 'sync') return false;
     // Polymorphic tools: check the resolved action arg.
