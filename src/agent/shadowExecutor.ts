@@ -39,10 +39,18 @@ function nextComparisonId(): string {
 }
 
 /**
- * Run shadow execution for all shadow-state recipes against the given
- * user message and frontier response. Best-effort — never throws.
+ * Run shadow execution for shadow-state recipes whose signature matches
+ * the incoming message, alongside the frontier response. Best-effort —
+ * never throws.
  *
- * @param message The user's original message (for slot resolution).
+ * Security fix (MISSION.md fix 1): filter shadow entries by request
+ * signature. Before this, ALL shadow recipes ran against EVERY message,
+ * regardless of task family — a shadow recipe compiled for "summarize"
+ * would execute against a "search" message with the same tool sequence.
+ * Now only recipes whose compiled signature matches the incoming
+ * message's abstract signature are considered.
+ *
+ * @param message The user's original message (for slot resolution + signature filter).
  * @param frontierOutput The frontier model's tool results (for comparison).
  * @param config The current TitanConfig (for gate checks).
  */
@@ -53,10 +61,13 @@ export async function runShadowComparisons(
 ): Promise<void> {
     if (!shouldPromote(config)) return;
 
-    const shadowEntries = listEntries().filter(e => e.recipe.state === 'shadow');
+    // Security fix 1: compute the incoming message's signature and filter
+    // shadow entries to only those whose compiled signature matches.
+    const { sig, slots } = computeAbstractSignature(message);
+    const shadowEntries = listEntries().filter(
+        e => e.recipe.state === 'shadow' && e.recipe.signature === sig,
+    );
     if (shadowEntries.length === 0) return;
-
-    const { slots } = computeAbstractSignature(message);
 
     for (const entry of shadowEntries) {
         try {

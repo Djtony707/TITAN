@@ -406,4 +406,184 @@ describe('v8 slice 5 — production compile pipeline', () => {
         expect(spy).not.toHaveBeenCalled();
         spy.mockRestore();
     });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Security fix 1: runShadowComparisons filters by request signature
+    // ════════════════════════════════════════════════════════════════════════
+
+    it('runShadowComparisons does NOT run shadow recipes for a different task family', async () => {
+        // Seed a trace + cluster for "summarize" intent → shadow recipe.
+        const trace = makeTrace({ message: 'summarize /home/tony/notes.txt' });
+        persistTrace(trace);
+        seedClusterStore([makeCluster()]);
+        const result = runCompilePipeline(cfg({ enabled: true, compile: true, promote: true }));
+        const recipeId = result.details.find(d => d.recipeId)?.recipeId!;
+        expect(getEntry(recipeId)!.recipe.state).toBe('shadow');
+
+        // Spy on recordShadowComparison.
+        const registryModule = await import('../src/agent/recipeRegistry.js');
+        const spy = vi.spyOn(registryModule, 'recordShadowComparison');
+        spy.mockImplementation(registryModule.recordShadowComparison);
+
+        // Run shadow comparisons with a DIFFERENT task family message.
+        // "search /home/tony/notes.txt for keywords" has a different abstract
+        // signature than "summarize /home/tony/notes.txt" — the shadow recipe
+        // must NOT execute against this message.
+        await runShadowComparisons(
+            'search /home/tony/notes.txt for keywords',
+            [{ name: 'read_file', content: 'ok' }],
+            cfg(),
+        );
+
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('runShadowComparisons runs shadow recipes for a matching task family', async () => {
+        const trace = makeTrace({ message: 'summarize /home/tony/notes.txt' });
+        persistTrace(trace);
+        seedClusterStore([makeCluster()]);
+        const result = runCompilePipeline(cfg({ enabled: true, compile: true, promote: true }));
+        const recipeId = result.details.find(d => d.recipeId)?.recipeId!;
+
+        const registryModule = await import('../src/agent/recipeRegistry.js');
+        const spy = vi.spyOn(registryModule, 'recordShadowComparison');
+        spy.mockImplementation(registryModule.recordShadowComparison);
+
+        // Same task family (different path slot value) — signature matches.
+        await runShadowComparisons(
+            'summarize /tmp/different.txt',
+            [{ name: 'read_file', content: 'ok' }],
+            cfg(),
+        );
+
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Security fix 2 + 3: router replay safety and awaitConfirm enforcement
+    // ════════════════════════════════════════════════════════════════════════
+
+    it('runV8RouterGate rejects replay when a step tool is not in TOOL_KINDS', async () => {
+        // This tests the execution-side default-deny gate (fix 2).
+        // We write a recipe with an undeclared tool directly to the registry
+        // and verify the router gate falls through to the frontier path
+        // instead of executing the dangerous tool.
+        const { runV8RouterGate } = await import('../src/agent/agentLoop.js');
+        const { invalidateRegistryCache } = await import('../src/agent/recipeRegistry.js');
+        const { computeAbstractSignature } = await import('../src/agent/recipeSignature.js');
+
+        // Create a recipe with an undeclared tool.
+        const sig = computeAbstractSignature('test undeclared tool').sig;
+        const registry = {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            entries: {
+                'test-undeclared': {
+                    recipe: {
+                        id: 'test-undeclared',
+                        name: 'Test Undeclared',
+                        description: 'test',
+                        slashCommand: undefined,
+                        parameters: {},
+                        steps: [{
+                            prompt: 'test',
+                            tool: 'malicious_unknown_tool',
+                            toolArgs: {},
+                            awaitConfirm: false,
+                        }],
+                        createdAt: new Date().toISOString(),
+                        signature: sig,
+                        sourceTraceIds: ['tr-x'],
+                        tier: 2,
+                        state: 'active',
+                        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0, shadowEpoch: 0 },
+                    },
+                    baselineTokens: 100,
+                    lastTransition: { at: '', from: '', to: '', reason: '' },
+                },
+            },
+        };
+        mkdirSync(join(tmpHome, 'compiler'), { recursive: true });
+        writeFileSync(join(tmpHome, 'compiler', 'registry.json'), JSON.stringify(registry, null, 2));
+        invalidateRegistryCache();
+
+        const ctx = {
+            message: 'test undeclared tool',
+            config: cfg({ enabled: true, route: true }),
+            sessionId: 'test',
+            agentId: 'test',
+            channel: 'test',
+            voiceFastPath: false,
+        } as any;
+        const result = { content: '', toolsUsed: [], attemptedTools: [], orderedToolSequence: [], modelUsed: 'test', promptTokens: 0, completionTokens: 0, budgetExhausted: false, toolCallDetails: [] };
+
+        // Should return undefined (fall through to frontier) — not execute.
+        const gateResult = await runV8RouterGate(ctx, result);
+        expect(gateResult).toBeUndefined();
+
+        invalidateRegistryCache();
+    });
+
+    it('runV8RouterGate rejects replay when a step has awaitConfirm=true', async () => {
+        // This tests the awaitConfirm enforcement (fix 3).
+        // A recipe step with awaitConfirm=true must NOT auto-replay.
+        const { runV8RouterGate } = await import('../src/agent/agentLoop.js');
+        const { invalidateRegistryCache } = await import('../src/agent/recipeRegistry.js');
+        const { computeAbstractSignature } = await import('../src/agent/recipeSignature.js');
+
+        // read_file is a declared sync tool, so it passes the TOOL_KINDS gate.
+        // But we set awaitConfirm=true to simulate a risky/destructive step
+        // that should not auto-replay without human approval.
+        const sig = computeAbstractSignature('read confirmed file').sig;
+        const registry = {
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            entries: {
+                'test-confirm': {
+                    recipe: {
+                        id: 'test-confirm',
+                        name: 'Test Confirm',
+                        description: 'test',
+                        slashCommand: undefined,
+                        parameters: {},
+                        steps: [{
+                            prompt: 'test',
+                            tool: 'read_file',
+                            toolArgs: { path: '/tmp/test.txt' },
+                            awaitConfirm: true,
+                        }],
+                        createdAt: new Date().toISOString(),
+                        signature: sig,
+                        sourceTraceIds: ['tr-x'],
+                        tier: 2,
+                        state: 'active',
+                        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0, shadowEpoch: 0 },
+                    },
+                    baselineTokens: 100,
+                    lastTransition: { at: '', from: '', to: '', reason: '' },
+                },
+            },
+        };
+        mkdirSync(join(tmpHome, 'compiler'), { recursive: true });
+        writeFileSync(join(tmpHome, 'compiler', 'registry.json'), JSON.stringify(registry, null, 2));
+        invalidateRegistryCache();
+
+        const ctx = {
+            message: 'read confirmed file',
+            config: cfg({ enabled: true, route: true }),
+            sessionId: 'test',
+            agentId: 'test',
+            channel: 'test',
+            voiceFastPath: false,
+        } as any;
+        const result = { content: '', toolsUsed: [], attemptedTools: [], orderedToolSequence: [], modelUsed: 'test', promptTokens: 0, completionTokens: 0, budgetExhausted: false, toolCallDetails: [] };
+
+        // Should return undefined (fall through to frontier) — not auto-replay.
+        const gateResult = await runV8RouterGate(ctx, result);
+        expect(gateResult).toBeUndefined();
+
+        invalidateRegistryCache();
+    });
 });

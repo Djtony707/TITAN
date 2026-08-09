@@ -769,6 +769,34 @@ export async function runV8RouterGate(
             const { routeCompiled, escalateOnFailure, renderReplayResult } = router;
             const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
             if (routeDecision.kind === 'replay') {
+                // Security fix 2 (MISSION.md): default-deny replay safety check
+                // BEFORE executeTools(). The router already validated each step
+                // via isReplaySafeStep, but this is the execution-side enforcement
+                // — a defense-in-depth gate that independently verifies every
+                // step's tool is declared in TOOL_KINDS before any tool call
+                // leaves the process. If a recipe was corrupted between the
+                // router decision and execution (e.g. registry tampering, race
+                // condition), this gate catches it at the boundary.
+                const { TOOL_KINDS } = await import('./toolIntent.js');
+                const undeclared = routeDecision.resolvedSteps.find(s => !(s.tool in TOOL_KINDS));
+                if (undeclared) {
+                    logger.warn(COMPONENT, `[v8 Router] Default-deny: step tool "${undeclared.tool}" not declared in TOOL_KINDS — escalating to frontier`);
+                    return undefined; // fall through to frontier path
+                }
+
+                // Security fix 3 (MISSION.md): enforce ResolvedStep.awaitConfirm.
+                // The router sets awaitConfirm=true on steps compiled from
+                // risky/destructive tools. A 'replay' decision means the router
+                // classified ALL steps as replay-safe sync — so awaitConfirm
+                // should be false on every step here. But if a recipe was
+                // corrupted or a gate was bypassed, this enforcement prevents
+                // a confirmed step from auto-replaying without human approval.
+                const needsConfirm = routeDecision.resolvedSteps.find(s => s.awaitConfirm);
+                if (needsConfirm) {
+                    logger.warn(COMPONENT, `[v8 Router] Default-deny: step tool "${needsConfirm.tool}" has awaitConfirm=true — cannot auto-replay, escalating to frontier`);
+                    return undefined; // fall through to frontier path
+                }
+
                 const replayCalls: ToolCall[] = routeDecision.resolvedSteps.map((s, i) => ({
                     id: `replay-${ctx.sessionId}-${i}`,
                     type: 'function' as const,
