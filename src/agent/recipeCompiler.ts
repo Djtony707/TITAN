@@ -48,6 +48,16 @@ export interface CompiledRecipe extends Omit<Recipe, 'steps'> {
          *  measured, not narrated (Finding 3). Populated by the registry. */
         tokensSaved: number;
         shadowComparisons: number;
+        /** Shadow comparisons that passed equivalence (Honey blocker 3:
+         *  computed by the registry from compared runs, never caller-supplied).
+         *  Separate from `successes` so active-replay successes do not
+         *  pollute the shadow evidence window. */
+        shadowSuccesses: number;
+        /** Monotonic epoch incremented every time the recipe (re-)enters
+         *  shadow (Honey blocker 2). Each shadow comparison records the
+         *  epoch it was taken at; comparisons from a prior epoch do not
+         *  satisfy the current promotion window. */
+        shadowEpoch: number;
     };
 }
 
@@ -157,7 +167,7 @@ export function compileRecipe(
         sourceTraceIds: [trace.traceId],
         tier: 2,
         state: 'candidate',
-        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0 },
+        stats: { invocations: 0, successes: 0, tokensSaved: 0, shadowComparisons: 0, shadowSuccesses: 0, shadowEpoch: 0 },
     };
 }
 

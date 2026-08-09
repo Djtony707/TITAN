@@ -859,7 +859,7 @@ export const TitanConfigSchema = z.object({
             end: z.number().min(0).max(23).default(23),
         }).optional(),
         /** Autopilot mode: 'checklist' (AUTOPILOT.md), 'goals' (goal-based), or 'self-improve' (autonomous self-improvement) */
-        mode: z.enum(['checklist', 'goals', 'self-improve', 'recognize']).default('checklist'),
+        mode: z.enum(['checklist', 'goals', 'self-improve']).default('checklist'),
         /** Goal-based autopilot settings */
         goals: z.object({
             /** Maximum active goals */
@@ -1302,6 +1302,15 @@ export const TitanConfigSchema = z.object({
         /** Stage 1 (RECORD): persist completed traces to disk. Implies
          *  `enabled`; safe to set true while the rest stays off. */
         record: z.boolean().default(false),
+        /** Stage 3 (COMPILE): compile persisted traces into candidate recipes.
+         *  Implies `enabled`; the registry stays empty until recipes are
+         *  compiled. `registerRecipe` refuses when this is false. */
+        compile: z.boolean().default(false),
+        /** Stage 4 (GATE): promote candidate → shadow → active via the
+         *  promotion state machine. Implies `enabled`; `promoteToShadow`
+         *  and `activate` refuse when this is false. Shadow comparison
+         *  recording is part of the promotion flow and is gated too. */
+        promote: z.boolean().default(false),
         /** Stage 5 (ROUTE): router middleware at the loop head. Implies
          *  `enabled`; the registry is empty by default so this is a
          *  constant-time miss until recipes are compiled. */
