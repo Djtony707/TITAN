@@ -90,7 +90,7 @@ export type RouterDecision = RouterDecisionReplay | RouterDecisionConfirmRequire
  * unconsumed slot is a Miss. A partial replay is silent wrong behavior;
  * a miss costs one frontier run.
  */
-function resolveSlots(recipe: CompiledRecipe, slots: TypedSlot[]): ResolvedStep[] | null {
+export function resolveSlots(recipe: CompiledRecipe, slots: TypedSlot[]): ResolvedStep[] | null {
     const values = slots.map(s => s.value);
     let cursor = 0;
     const resolved: ResolvedStep[] = [];

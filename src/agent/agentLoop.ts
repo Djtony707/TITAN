@@ -15,7 +15,7 @@
  */
 import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
-import { shouldRoute } from './v8Gates.js';
+import { shouldRoute, shouldPromote } from './v8Gates.js';
 import { runWithSession } from '../watch/sessionContext.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
@@ -1818,6 +1818,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     !tr.content.toLowerCase().includes('error'),
                     tr.diff,
                 );
+            }
+
+            // ── v8 Shadow Executor (Honey blocker 2 fix) ──────────
+            // Fire-and-forget: run shadow-state recipes alongside the
+            // frontier model's tool results. Best-effort — failures are
+            // logged and swallowed; the user always gets the frontier
+            // response regardless of shadow outcome.
+            if (shouldPromote(ctx.config) && ctx.message) {
+                const frontierOutput = toolResults.map(r => ({ name: r.name, content: r.content }));
+                // Don't await — shadow execution must never delay the user.
+                import('./shadowExecutor.js').then(({ runShadowComparisons }) =>
+                    runShadowComparisons(ctx.message!, frontierOutput, ctx.config),
+                ).catch(() => { /* shadow executor must never break the loop */ });
             }
 
             // v5.0: Approval-gate pause — if any tool is awaiting human approval,

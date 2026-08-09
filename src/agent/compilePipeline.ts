@@ -135,25 +135,38 @@ export function runCompilePipeline(config: TitanConfig): CompileResult {
 }
 
 /**
- * Find a persisted trace that matches the cluster's tool sequence.
- * Prefers successful traces with matching tool sequence.
+ * Find a persisted trace that matches the cluster's tool sequence AND
+ * signature. Honey blocker: the trace must belong to the same task family
+ * as the cluster — matching tool sequence alone can select a trace from
+ * a different intent that happens to use the same tools.
+ *
+ * The cluster's `signature.intent` is the normalized first 120 chars of
+ * the user message; the trace's `signature` (from traceStore.computeSignature)
+ * starts with the same normalized intent prefix. We require the trace
+ * signature to start with the cluster intent so we never compile a trace
+ * from a different task family.
  */
 function findMatchingTrace(traces: PersistedTrace[], cluster: TaskCluster): PersistedTrace | null {
     const dominantSeq = cluster.dominantToolSequence.join('>');
+    const clusterIntent = cluster.signature.intent;
 
-    // First pass: find a successful trace with matching tool sequence and a signature.
+    // First pass: find a successful trace with matching tool sequence,
+    // matching signature intent, and a signature.
     for (const trace of traces) {
         if (trace.status !== 'completed') continue;
         if (!trace.signature) continue;
+        if (!trace.signature.startsWith(clusterIntent)) continue;
         const toolSeq = trace.toolCalls.map(tc => tc.tool).join('>');
         if (toolSeq === dominantSeq) return trace;
     }
 
-    // Second pass: relax the tool sequence match — same tool set.
+    // Second pass: relax the tool sequence match — same tool set, still
+    // requiring signature intent match.
     const clusterTools = new Set(cluster.dominantToolSequence);
     for (const trace of traces) {
         if (trace.status !== 'completed') continue;
         if (!trace.signature) continue;
+        if (!trace.signature.startsWith(clusterIntent)) continue;
         const traceTools = new Set(trace.toolCalls.map(tc => tc.tool));
         if (traceTools.size === clusterTools.size && [...traceTools].every(t => clusterTools.has(t))) return trace;
     }

@@ -333,7 +333,7 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
         }
 
         // ── Goal-based mode: pick next subtask from active goals ──
-        const autopilotMode = (config.autopilot as Record<string, unknown>).mode as string || 'checklist';
+        const autopilotMode = config.autopilot.mode;
         if (autopilotMode === 'goals') {
             return await runGoalBasedAutopilot(config, startTime, dryRun);
         }
