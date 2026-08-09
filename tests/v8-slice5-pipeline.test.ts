@@ -3,7 +3,7 @@
  *
  * Proves the documented Slice 5 shipping contract:
  *   "qualifying cluster → recipe drafted → runs in shadow → promotes only
- *    on verified equivalence; forced-failure shadow → stays candidate;
+ *    on verified equivalence; forced-failure shadow → stays in shadow;
  *    forced-failure active → auto-demotes with visible event"
  *
  * Exercises the REAL production modules end-to-end:
@@ -22,7 +22,7 @@ import { computeAbstractSignature } from '../src/agent/recipeSignature.js';
 import { invalidateRegistryCache, getEntry, promoteToShadow, recordShadowComparison, activate, recordInvocation, SHADOW_MIN_COMPARISONS, getActiveRecipes } from '../src/agent/recipeRegistry.js';
 import { runCompilePipeline, type CompileResult } from '../src/agent/compilePipeline.js';
 import type { TaskCluster, ClusterStore } from '../src/agent/recognizeCluster.js';
-import type { TaskSignature } from '../src/agent/taskSignature.js';
+import { extractTaskSignature, type TaskSignature } from '../src/agent/taskSignature.js';
 
 let originalHome: string | undefined;
 let originalTitanHome: string | undefined;
@@ -80,12 +80,7 @@ function makeTrace(overrides: Partial<PersistedTrace> = {}): PersistedTrace {
 }
 
 function makeCluster(overrides: Partial<TaskCluster> = {}): TaskCluster {
-    const sig: TaskSignature = overrides.signature ?? {
-        intent: 'summarize',
-        entities: [{ type: 'path', value: '/home/tony/notes.txt', raw: '/home/tony/notes.txt' }],
-        signature: 'summarize::path',
-        hash: 'abc123',
-    };
+    const sig: TaskSignature = overrides.signature ?? extractTaskSignature('summarize /home/tony/notes.txt');
     return {
         signature: sig,
         frequency: 3,
@@ -189,7 +184,7 @@ describe('v8 slice 5 — production compile pipeline', () => {
         expect(activeRecipes[0]!.id).toBe(recipeId);
     });
 
-    it('forced-failure shadow comparison stays candidate (does not promote)', () => {
+    it('forced-failure shadow comparison stays in shadow (does not promote to active)', () => {
         const trace = makeTrace();
         persistTrace(trace);
         seedClusterStore([makeCluster()]);
@@ -289,5 +284,41 @@ describe('v8 slice 5 — production compile pipeline', () => {
 
         const recipeId = result.details.find(d => d.recipeId)?.recipeId!;
         expect(getEntry(recipeId)!.recipe.state).toBe('candidate');
+    });
+
+    it('does not compile a trace from a different task family with the same tool sequence', () => {
+        // Two traces with the same tool sequence (read_file) but different intents.
+        const summarizeTrace = makeTrace({
+            traceId: 'tr-summarize',
+            message: 'summarize /home/tony/notes.txt',
+        });
+        const searchTrace = makeTrace({
+            traceId: 'tr-search',
+            message: 'search /home/tony/notes.txt for keywords',
+        });
+        persistTrace(summarizeTrace);
+        persistTrace(searchTrace);
+
+        // Cluster for "search" intent with the same dominant tool sequence.
+        // Use the real extracted signature so the hash matches.
+        const searchSig = extractTaskSignature('search /home/tony/notes.txt for keywords');
+        const searchCluster = makeCluster({
+            signature: searchSig,
+            dominantToolSequence: ['read_file'],
+        });
+        seedClusterStore([searchCluster]);
+
+        const result = runCompilePipeline(cfg());
+
+        // The pipeline should compile from the search trace, not the summarize trace.
+        // If signature matching is broken, it might pick the summarize trace
+        // (which happens to use read_file too) and compile the wrong recipe.
+        expect(result.recipesCompiled).toBe(1);
+
+        const recipeId = result.details.find(d => d.recipeId)?.recipeId!;
+        const entry = getEntry(recipeId)!;
+        // The compiled recipe's source trace must be the search trace, not summarize.
+        expect(entry.recipe.sourceTraceIds).toContain('tr-search');
+        expect(entry.recipe.sourceTraceIds).not.toContain('tr-summarize');
     });
 });

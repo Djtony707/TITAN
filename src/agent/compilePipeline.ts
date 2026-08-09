@@ -26,6 +26,7 @@ import { readTraces, type PersistedTrace } from './traceStore.js';
 import { compileRecipe } from './recipeCompiler.js';
 import { registerRecipe, promoteToShadow, listEntries, type RegistryEntry } from './recipeRegistry.js';
 import { shouldCompile, shouldPromote } from './v8Gates.js';
+import { extractTaskSignature } from './taskSignature.js';
 import type { TitanConfig } from '../config/schema.js';
 import logger from '../utils/logger.js';
 
@@ -135,38 +136,44 @@ export function runCompilePipeline(config: TitanConfig): CompileResult {
 }
 
 /**
- * Find a persisted trace that matches the cluster's tool sequence AND
- * signature. Honey blocker: the trace must belong to the same task family
- * as the cluster — matching tool sequence alone can select a trace from
- * a different intent that happens to use the same tools.
+ * Find a persisted trace that matches the cluster's task signature.
  *
- * The cluster's `signature.intent` is the normalized first 120 chars of
- * the user message; the trace's `signature` (from traceStore.computeSignature)
- * starts with the same normalized intent prefix. We require the trace
- * signature to start with the cluster intent so we never compile a trace
- * from a different task family.
+ * The cluster's `signature.hash` is the SHA-256 of `intent::type1::type2::...`
+ * from `extractTaskSignature`. The trace's stored `signature` field is from
+ * `traceStore.computeSignature` (intent + tool sequence) — a different format.
+ * We re-extract the task signature from the trace's message and compare hash
+ * to the cluster's signature hash, so we never compile a trace from a
+ * different task family that happens to use the same tools.
  */
 function findMatchingTrace(traces: PersistedTrace[], cluster: TaskCluster): PersistedTrace | null {
+    const clusterHash = cluster.signature.hash;
+    const clusterSig = cluster.signature.signature;
     const dominantSeq = cluster.dominantToolSequence.join('>');
-    const clusterIntent = cluster.signature.intent;
 
-    // First pass: find a successful trace with matching tool sequence,
-    // matching signature intent, and a signature.
+    // First pass: successful trace with matching signature hash AND tool sequence.
     for (const trace of traces) {
         if (trace.status !== 'completed') continue;
-        if (!trace.signature) continue;
-        if (!trace.signature.startsWith(clusterIntent)) continue;
+        const traceSig = extractTaskSignature(trace.message);
+        if (traceSig.hash !== clusterHash) continue;
         const toolSeq = trace.toolCalls.map(tc => tc.tool).join('>');
         if (toolSeq === dominantSeq) return trace;
     }
 
-    // Second pass: relax the tool sequence match — same tool set, still
-    // requiring signature intent match.
+    // Second pass: matching signature string (belt-and-suspenders) AND tool sequence.
+    for (const trace of traces) {
+        if (trace.status !== 'completed') continue;
+        const traceSig = extractTaskSignature(trace.message);
+        if (traceSig.signature !== clusterSig) continue;
+        const toolSeq = trace.toolCalls.map(tc => tc.tool).join('>');
+        if (toolSeq === dominantSeq) return trace;
+    }
+
+    // Third pass: matching signature hash, relaxed tool sequence (same tool set).
     const clusterTools = new Set(cluster.dominantToolSequence);
     for (const trace of traces) {
         if (trace.status !== 'completed') continue;
-        if (!trace.signature) continue;
-        if (!trace.signature.startsWith(clusterIntent)) continue;
+        const traceSig = extractTaskSignature(trace.message);
+        if (traceSig.hash !== clusterHash) continue;
         const traceTools = new Set(trace.toolCalls.map(tc => tc.tool));
         if (traceTools.size === clusterTools.size && [...traceTools].every(t => clusterTools.has(t))) return trace;
     }
