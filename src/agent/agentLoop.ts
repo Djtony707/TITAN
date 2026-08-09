@@ -15,9 +15,7 @@
  */
 import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
-import { routeCompiled, escalateOnFailure, renderReplayResult } from './routerMiddleware.js';
 import { shouldRoute } from './v8Gates.js';
-import { getActiveRecipes, recordInvocation } from './recipeRegistry.js';
 import { runWithSession } from '../watch/sessionContext.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
@@ -761,6 +759,14 @@ export async function runV8RouterGate(
 ): Promise<LoopResult | undefined> {
     if (shouldRoute(ctx.config) && ctx.message && !ctx.voiceFastPath) {
         try {
+            // Keep the promotion stack out of the v7 module graph while the
+            // route gate is disabled. Loading it here also avoids registry I/O.
+            const [registry, router] = await Promise.all([
+                import('./recipeRegistry.js'),
+                import('./routerMiddleware.js'),
+            ]);
+            const { getActiveRecipes, recordInvocation } = registry;
+            const { routeCompiled, escalateOnFailure, renderReplayResult } = router;
             const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
             if (routeDecision.kind === 'replay') {
                 const replayCalls: ToolCall[] = routeDecision.resolvedSteps.map((s, i) => ({
