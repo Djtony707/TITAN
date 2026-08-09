@@ -23,6 +23,8 @@ import { invalidateRegistryCache, getEntry, promoteToShadow, recordShadowCompari
 import { runCompilePipeline, type CompileResult } from '../src/agent/compilePipeline.js';
 import type { TaskCluster, ClusterStore } from '../src/agent/recognizeCluster.js';
 import { extractTaskSignature, type TaskSignature } from '../src/agent/taskSignature.js';
+import { runShadowComparisons } from '../src/agent/shadowExecutor.js';
+import { vi } from 'vitest';
 
 let originalHome: string | undefined;
 let originalTitanHome: string | undefined;
@@ -320,5 +322,88 @@ describe('v8 slice 5 — production compile pipeline', () => {
         // The compiled recipe's source trace must be the search trace, not summarize.
         expect(entry.recipe.sourceTraceIds).toContain('tr-search');
         expect(entry.recipe.sourceTraceIds).not.toContain('tr-summarize');
+    });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Honey blocker 1: config schema accepts mode: "compile"
+    // ════════════════════════════════════════════════════════════════════════
+
+    it('TitanConfigSchema accepts autopilot.mode="compile" through validation', () => {
+        // Honey blocker 1: before the fix, TitanConfigSchema.safeParse rejected
+        // mode:"compile" because the enum only allowed checklist|goals|self-improve.
+        // The compile dispatch in autopilot.ts was unreachable from validated config.
+        const parsed = TitanConfigSchema.safeParse({ autopilot: { mode: 'compile' } });
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expect(parsed.data.autopilot.mode).toBe('compile');
+        }
+    });
+
+    it('TitanConfigSchema accepts autopilot.mode="recognize" through validation', () => {
+        // Also verify recognize mode (v8 Slice 4) is accepted.
+        const parsed = TitanConfigSchema.safeParse({ autopilot: { mode: 'recognize' } });
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expect(parsed.data.autopilot.mode).toBe('recognize');
+        }
+    });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Honey blocker 2: shadowExecutor is a production caller of recordShadowComparison
+    // ════════════════════════════════════════════════════════════════════════
+
+    it('runShadowComparisons calls recordShadowComparison for shadow-state recipes', async () => {
+        // Seed a trace + cluster, run the compile pipeline to get a shadow-state recipe.
+        const trace = makeTrace();
+        persistTrace(trace);
+        seedClusterStore([makeCluster()]);
+
+        const result = runCompilePipeline(cfg({ enabled: true, compile: true, promote: true }));
+        const recipeId = result.details.find(d => d.recipeId)?.recipeId!;
+        const entry = getEntry(recipeId)!;
+        expect(entry.recipe.state).toBe('shadow');
+
+        // Spy on recordShadowComparison in the recipeRegistry module.
+        // The shadowExecutor imports recordShadowComparison from recipeRegistry.js,
+        // so we spy on that module's export.
+        const registryModule = await import('../src/agent/recipeRegistry.js');
+        const spy = vi.spyOn(registryModule, 'recordShadowComparison');
+        // Make the spy call through to the real implementation.
+        spy.mockImplementation(registryModule.recordShadowComparison);
+
+        // Run the shadow executor with a frontier output.
+        const frontierOutput = [{ name: 'read_file', content: 'ok' }];
+        await runShadowComparisons('summarize /home/tony/notes.txt', frontierOutput, cfg());
+
+        // The shadow executor must have called recordShadowComparison at least once.
+        expect(spy).toHaveBeenCalled();
+        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+
+        // Verify the call included the recipe ID and comparison data.
+        const firstCall = spy.mock.calls[0]!;
+        expect(firstCall[0]).toBe(recipeId);
+        expect(firstCall[1]).toHaveProperty('frontier');
+        expect(firstCall[1]).toHaveProperty('recipe');
+
+        spy.mockRestore();
+    });
+
+    it('runShadowComparisons is a no-op when promote gate is off', async () => {
+        const trace = makeTrace();
+        persistTrace(trace);
+        seedClusterStore([makeCluster()]);
+
+        // Compile with promote gate ON to get a shadow recipe.
+        runCompilePipeline(cfg({ enabled: true, compile: true, promote: true }));
+
+        // Now run shadow comparisons with promote gate OFF — should be a no-op.
+        const registryModule = await import('../src/agent/recipeRegistry.js');
+        const spy = vi.spyOn(registryModule, 'recordShadowComparison');
+        spy.mockImplementation(registryModule.recordShadowComparison);
+
+        await runShadowComparisons('summarize /home/tony/notes.txt', [{ name: 'read_file', content: 'ok' }], cfg({ promote: false }));
+
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
     });
 });
