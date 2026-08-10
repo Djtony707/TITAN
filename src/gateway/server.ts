@@ -85,6 +85,7 @@ import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
 import { createCompanyRouter } from './routes/company.js';
+import { createRecordRouter } from './routes/record.js';
 import { restartFieldsFor, applyCompanyConfig } from './restartPolicy.js';
 import { createMissionsRouter } from './routes/missions.js';
 import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange, reattachMissionBridgesOnStartup } from '../agent/missionLifecycle.js';
@@ -2321,6 +2322,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // event cb5b802d). The router keeps its own internal guard as defense in depth.
   if (loadConfig().company?.enabled) {
     app.use('/api/company', createCompanyRouter());
+  }
+
+  // ── v8 Record API (Slice 3) ──────────────────────────────────
+  // Guarded by record.enabled flag — 404s when off (byte-identical v7).
+  // The router keeps its own internal guard as defense in depth.
+  if (loadConfig().record?.enabled) {
+    app.use('/api/record', createRecordRouter());
   }
 
   // ── Command Post API (Agent Governance) ───────────────────
