@@ -36,6 +36,8 @@ import type {
   CompanyRoomPage,
   QueueFold,
   QueuePresenceResponse,
+  RecordTasksResponse,
+  RecordTurnsResponse,
 } from './types';
 
 import { trackEvent } from './telemetry';
@@ -1010,6 +1012,22 @@ export async function closeCommitment(commitmentId: string, note?: string): Prom
     method: 'POST',
     body: JSON.stringify({ id: commitmentId, note }),
   });
+}
+
+// ---- v8 RECORD (Slice 3) ----
+
+/** Fetch per-task token/cost summary + task list. */
+export async function getRecordTasks(): Promise<RecordTasksResponse> {
+  return request('/api/record/tasks');
+}
+
+/** Fetch per-turn drill-down, optionally filtered by taskRef. */
+export async function getRecordTurns(taskRef?: string, limit?: number): Promise<RecordTurnsResponse> {
+  const params = new URLSearchParams();
+  if (taskRef) params.set('taskRef', taskRef);
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return request(`/api/record/turns${qs ? `?${qs}` : ''}`);
 }
 
 // ---- Session Management ----

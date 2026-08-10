@@ -792,6 +792,72 @@ export interface CompanyRoomPage {
   limit: number;
 }
 
+// ---- v8 RECORD (Slice 3) ----
+
+/** Per-turn record — a trace span joined with its receipt. */
+export interface TurnRecord {
+  actionId: string;
+  taskRef?: string;
+  attempt?: number;
+  agentId?: string;
+  role?: string;
+  startedAt: string;
+  durationMs: number;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  toolsUsed: string[];
+  ok: boolean;
+  exit?: string;
+  usageMeasured: boolean;
+  receiptKind?: string;
+  receiptStatus?: string;
+  receiptSummary?: string;
+}
+
+/** Per-task aggregate — turns grouped by taskRef. */
+export interface TaskRecord {
+  taskRef: string;
+  attempts: number;
+  turns: TurnRecord[];
+  totalTokens: number;
+  totalCostUsd: number;
+  measuredTurns: number;
+  unmeasuredTurns: number;
+  firstStartedAt: string;
+  lastDurationMs: number;
+  allOk: boolean;
+}
+
+/** Aggregate summary over all recorded turns. */
+export interface RecordSummary {
+  totalTasks: number;
+  totalTurns: number;
+  measuredTurns: number;
+  unmeasuredTurns: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalCostUsd: number;
+  avgTokensPerTask: number;
+  avgCostPerTask: number;
+}
+
+/** GET /api/record/tasks response */
+export interface RecordTasksResponse {
+  summary: RecordSummary;
+  tasks: TaskRecord[];
+}
+
+/** GET /api/record/turns response */
+export interface RecordTurnsResponse {
+  turns: TurnRecord[];
+  count: number;
+  total: number;
+}
+
 // ---- v8 Work Queue (Slice 2) ----
 
 /**
