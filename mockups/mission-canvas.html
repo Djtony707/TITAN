@@ -1125,6 +1125,22 @@
     color: var(--ink-faint); cursor: pointer; font-size: 14px;
   }
 
+  .mockup-disclosure {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1000;
+    padding: 7px 10px;
+    border: 1px solid rgba(255, 193, 92, 0.45);
+    border-radius: 8px;
+    background: rgba(20, 16, 10, 0.94);
+    color: #ffd98a;
+    font: 700 10px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  }
+
   /* ── Responsive guards ────────────────────────────────────────── */
   @media (max-width: 980px) {
     .artifact { width: 360px; padding: 22px 24px 26px; }
@@ -1135,6 +1151,8 @@
 </style>
 </head>
 <body class="scene-3 tour-on">
+
+  <div class="mockup-disclosure" role="note">Fictional illustrative mockup — not measured customer data</div>
 
   <!-- Drifting starfield -->
   <div class="stars" id="stars"></div>
