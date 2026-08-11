@@ -39,7 +39,7 @@ import {
   type MissionMember,
   type MissionRoom,
 } from '@/api/missions';
-import { nudgeAction, nudgeHint } from './nudgeLogic';
+import { executeNudge, nudgeHint } from './nudgeLogic';
 
 interface ModelOption { id: string; label: string; provider: string }
 
@@ -89,12 +89,7 @@ export function AgentMenu({
     setBusy(true);
     setError(null);
     try {
-      const action = nudgeAction(room, member);
-      if (action.kind === 'recovery') {
-        await nudgeMission(room.id);
-      } else {
-        await postMessage(room.id, action.message!);
-      }
+      await executeNudge(room, member, { nudgeMission, postMessage });
       onClose();
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
