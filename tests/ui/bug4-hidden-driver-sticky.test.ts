@@ -117,3 +117,108 @@ describe('Bug #4 — hidden driver: sticky visible, desk item hidden', () => {
         expect(driverEntry!.activityLog!.length).toBe(1);
     });
 });
+
+// ── Edge cases (Bug #4 QA follow-up) ──────────────────────────────────
+// Tess flagged these as open work in the 2026-08-11 Bug #4 QA review:
+// hidden member with empty/undefined activityLog, multiple hidden
+// members under the rollup key, and a sanity check that the
+// activityMembers projection always preserves order (deterministic
+// output for a deterministic rollup).
+describe('projectMissionTeam — edge cases (Bug #4 follow-up)', () => {
+    it('hidden member with undefined activityLog → no rollup entry produced', () => {
+        const hiddenNoLog: MissionMember = {
+            agentId: 'driver',
+            name: 'Driver',
+            role: 'orchestrator',
+            color: '#7c3aed',
+            state: 'idle',
+            hidden: true,
+            // activityLog deliberately undefined
+        };
+        const { activityMembers } = projectMissionTeam([hiddenNoLog]);
+        // The driver IS in activityMembers (Bug #4 — hidden members
+        // feed stickies), but the undefined activityLog produces
+        // no rollup entries via the existing rollup helper.
+        expect(activityMembers.some(m => m.agentId === 'driver')).toBe(true);
+        expect(rollupActivityStickies(activityMembers)).toEqual([]);
+    });
+
+    it('hidden member with empty activityLog array → no stickies produced', () => {
+        const hiddenEmptyLog: MissionMember = {
+            agentId: 'driver',
+            name: 'Driver',
+            role: 'orchestrator',
+            color: '#7c3aed',
+            state: 'idle',
+            hidden: true,
+            activityLog: [],
+        };
+        const { activityMembers } = projectMissionTeam([hiddenEmptyLog]);
+        const stickies = rollupActivityStickies(activityMembers);
+        expect(stickies).toEqual([]);
+    });
+
+    it('multiple hidden members render as separate stickies (rollup key is per-agent)', () => {
+        const driverA: MissionMember = {
+            agentId: 'driver-a',
+            name: 'Driver A',
+            role: 'orchestrator',
+            color: '#7c3aed',
+            state: 'idle',
+            hidden: true,
+            activityLog: [{ at: new Date().toISOString(), icon: '📤', activity: 'dispatched' }],
+        };
+        const driverB: MissionMember = {
+            agentId: 'driver-b',
+            name: 'Driver B',
+            role: 'orchestrator',
+            color: '#22c55e',
+            state: 'idle',
+            hidden: true,
+            activityLog: [{ at: new Date().toISOString(), icon: '📥', activity: 'received' }],
+        };
+        const { activityMembers } = projectMissionTeam([driverA, driverB]);
+        const stickies = rollupActivityStickies(activityMembers);
+        // Both hidden members should produce stickies, distinct entries
+        expect(stickies.length).toBe(2);
+        const agentIds = stickies.map(s => s.agentId).sort();
+        expect(agentIds).toEqual(['driver-a', 'driver-b']);
+    });
+
+    it('activityMembers preserves the input order (deterministic rollup)', () => {
+        const writer: MissionMember = {
+            agentId: 'writer', name: 'Writer', role: 'wordsmith',
+            color: '#ff9a4a', state: 'idle',
+        };
+        const driver: MissionMember = {
+            agentId: 'driver', name: 'Driver', role: 'orchestrator',
+            color: '#7c3aed', state: 'idle', hidden: true,
+        };
+        const scout: MissionMember = {
+            agentId: 'scout', name: 'Scout', role: 'finder',
+            color: '#22c55e', state: 'idle',
+        };
+        const { activityMembers } = projectMissionTeam([writer, driver, scout]);
+        expect(activityMembers.map(m => m.agentId)).toEqual(['writer', 'driver', 'scout']);
+        // visibleMembers also preserves order
+        const { visibleMembers } = projectMissionTeam([writer, driver, scout]);
+        expect(visibleMembers.map(m => m.agentId)).toEqual(['writer', 'scout']);
+    });
+
+    it('teamActive is true only when a VISIBLE (non-hidden) member is working or editing', () => {
+        const visibleWorking: MissionMember = {
+            agentId: 'writer', name: 'Writer', role: 'wordsmith',
+            color: '#ff9a4a', state: 'working',
+        };
+        const hiddenWorking: MissionMember = {
+            agentId: 'driver', name: 'Driver', role: 'orchestrator',
+            color: '#7c3aed', state: 'working', hidden: true,
+        };
+        // Only the hidden driver is working → teamActive should be false.
+        // Only a visible member should drive the live-writing indicator.
+        const { teamActive } = projectMissionTeam([hiddenWorking]);
+        expect(teamActive).toBe(false);
+        const { teamActive: withVisible } = projectMissionTeam([visibleWorking, hiddenWorking]);
+        expect(withVisible).toBe(true);
+    });
+});

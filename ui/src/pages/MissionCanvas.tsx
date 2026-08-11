@@ -379,8 +379,9 @@ export default function MissionCanvas() {
     out.push({ id: 'clock', kind: 'clock' });
     out.push({ id: 'cabinet', kind: 'cabinet' });
     out.push({ id: 'trash', kind: 'trash' });
-    for (const m of room.team) {
-      if (m.hidden) continue; // skip hidden system members (Bug #4)
+    // Bug #4 — visibleMembers filters out hidden system members
+    // (e.g. the goal driver) so they don't appear as agent desk items.
+    for (const m of projectMissionTeam(room.team).visibleMembers) {
       out.push({ id: `agent:${m.agentId}`, kind: 'agent', ref: m.agentId });
     }
     for (const f of fileSources) {
@@ -1117,7 +1118,11 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
 
   // If the team is active and the document recently grew, show a
   // live-writing indicator with a blinking cursor.
-  const teamActive = room.team.some(t => !t.hidden && (t.state === 'working' || t.state === 'editing'));
+  //
+  // Bug #4 — teamActive comes from projectMissionTeam so hidden system
+  // members (e.g. the goal driver) are excluded; only visible members
+  // with working/editing state trigger the live-writing indicator.
+  const teamActive = projectMissionTeam(room.team).teamActive;
 
   // Phase 1 polish — show a polished SVG chart skeleton when an
   // Analyst is computing (heuristic: any team member named "Analyst"
