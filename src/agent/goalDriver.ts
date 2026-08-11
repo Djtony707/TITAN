@@ -86,6 +86,23 @@ function appendHistory(state: DriverState, phase: DriverPhase, note: string): vo
     const event: DriverHistoryEvent = { at: new Date().toISOString(), phase, note };
     state.history.push(event);
     if (state.history.length > 200) state.history = state.history.slice(-200);
+    // v6.1.0-alpha.42 (Bug #4) — emit subtask phase transitions on the
+    // agent-event bus so the mission lifecycle bridge can update canvas
+    // activity stickies in real time. Without this, the canvas showed stale
+    // state because the goalDriver never told the mission room about
+    // phase changes (planning → delegating → observing → verifying → done).
+    try {
+        emitAgentEvent({
+            type: 'subtask_phase',
+            timestamp: Date.now(),
+            data: {
+                goalId: state.goalId,
+                phase,
+                note,
+                currentSubtaskId: state.currentSubtaskId,
+            },
+        });
+    } catch { /* event bus failure never affects driver state */ }
 }
 
 // v6.0.3 — Approval-guidance composer. Distinguishes between a generic
