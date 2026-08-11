@@ -262,6 +262,7 @@ const MEMBER_META: Record<string, { role: string; color: string }> = {
     writer:  { role: 'the wordsmith',     color: '#ff9a4a' },
     analyst: { role: 'the numbers nerd',  color: '#4adbb5' },
     sage:    { role: 'the skeptic',       color: '#ff5d6c' },
+    driver:  { role: 'the orchestrator',  color: '#7c3aed' }, // v6.1.0-alpha.42 — system-level driver actor (Bug #4)
     default: { role: 'the generalist',    color: '#b07cff' },
 };
 

@@ -189,6 +189,34 @@ function ensureGlobalBusBridge(): void {
         const mission = getMissionByGoalId(goalId);
         if (!mission) return;
         const agentId = (ev.agentId ?? ev.agentName ?? '').toLowerCase();
+        // v6.1.0-alpha.42 (Bug #4) — subtask_phase events from goalDriver
+        // carry no agentId/agentName (they're driver-level, not specialist-
+        // level). Handle them BEFORE the agentId guard so they don't exit
+        // early. The driver is a system-level actor, not a specialist.
+        if (ev.type === 'subtask_phase') {
+            try {
+                const phase = typeof data.phase === 'string' ? data.phase : '';
+                const note = typeof data.note === 'string' ? data.note : '';
+                if (!phase) return;
+                const icon = phaseIcon(phase);
+                const activity = phaseLabel(phase);
+                if (icon && activity) {
+                    // Ensure a 'driver' system member exists so the activity
+                    // sticky has a home on the team. Without this, the
+                    // appendMemberActivity call is a no-op because the
+                    // member lookup fails.
+                    ensureMember(mission.id, 'driver');
+                    appendMemberActivity(mission.id, 'driver', {
+                        icon,
+                        activity,
+                        detail: note.slice(0, 100) || undefined,
+                    });
+                }
+            } catch (err) {
+                logger.debug(COMPONENT, `subtask_phase bridge threw for ${mission.id}: ${(err as Error).message}`);
+            }
+            return;
+        }
         if (!agentId) return;
         try {
             switch (ev.type) {
@@ -360,25 +388,6 @@ function ensureGlobalBusBridge(): void {
                     const cost = typeof data.costUsd === 'number' ? data.costUsd : 0;
                     if (tokens > 0 || cost > 0) {
                         recordCost(mission.id, tokens, cost);
-                    }
-                    break;
-                }
-                case 'subtask_phase': {
-                    // v6.1.0-alpha.42 (Bug #4) — goalDriver phase
-                    // transitions now emit on the agent-event bus. Push
-                    // a human-readable activity sticky so the canvas
-                    // updates in real time instead of showing stale state.
-                    const phase = typeof data.phase === 'string' ? data.phase : '';
-                    const note = typeof data.note === 'string' ? data.note : '';
-                    if (!phase) break;
-                    const icon = phaseIcon(phase);
-                    const activity = phaseLabel(phase);
-                    if (icon && activity) {
-                        appendMemberActivity(mission.id, 'driver', {
-                            icon,
-                            activity,
-                            detail: note.slice(0, 100) || undefined,
-                        });
                     }
                     break;
                 }
@@ -1203,6 +1212,7 @@ function phaseIcon(phase: string): string | null {
         case 'escalated': return '⚠️';
         case 'done': return '✅';
         case 'failed': return '❌';
+        case 'cancelled': return '⊘';
         default: return null;
     }
 }
@@ -1219,6 +1229,7 @@ function phaseLabel(phase: string): string | null {
         case 'escalated': return 'infrastructure issue';
         case 'done': return 'subtask completed';
         case 'failed': return 'subtask failed';
+        case 'cancelled': return 'goal cancelled';
         default: return null;
     }
 }
