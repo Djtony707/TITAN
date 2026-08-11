@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TITAN v8 — The Crew</title>
+  <link rel="stylesheet" href="titan-v8.css">
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">T</div>
+      <div class="sidebar-logo-text">TITAN</div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="company-room.html"><span class="icon">🏠</span> Home</a></li>
+      <li><a href="dashboard.html"><span class="icon">🎯</span> Desk</a></li>
+      <li><a href="dashboard.html"><span class="icon">🧠</span> Studio</a></li>
+      <li><a href="growth-moments.html"><span class="icon">📖</span> Memory</a></li>
+      <li class="sidebar-workshop"><div class="sidebar-workshop-label">Workshop</div></li>
+      <li><a href="#"><span class="icon">💬</span> Company Room</a></li>
+      <li><a href="crew.html" class="active"><span class="icon">👥</span> Crew <span class="badge">8</span></a></li>
+      <li><a href="#"><span class="icon">📋</span> Goals</a></li>
+      <li><a href="#"><span class="icon">⚠️</span> Approvals <span class="badge">2</span></a></li>
+      <li><a href="#"><span class="icon">🔧</span> Skills</a></li>
+      <li><a href="#"><span class="icon">🔌</span> MCP</a></li>
+      <li><a href="#"><span class="icon">🌐</span> Mesh</a></li>
+      <li><a href="#"><span class="icon">⚙️</span> Settings</a></li>
+    </ul>
+    <div class="sidebar-theme-picker">
+      <div class="sidebar-theme-dot active" style="background:#6e4724" title="Oak"></div>
+      <div class="sidebar-theme-dot" style="background:#4a2e18" title="Walnut"></div>
+      <div class="sidebar-theme-dot" style="background:#2a1808" title="Mahogany"></div>
+      <div class="sidebar-theme-dot" style="background:#f7f5ee;border-color:#ccc" title="White"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="main-header">
+      <div>
+        <div class="main-header-title">The Crew</div>
+        <div class="main-header-sub">8 agents · born-not-configured · one brain, many voices</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">+ Hire</button>
+        <button style="background:white;border:1px solid var(--border);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-primary);">Org Chart</button>
+      </div>
+    </div>
+    <div class="main-body">
+      <div class="card-grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr));">
+
+        <!-- Eli -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-eli">E<div class="presence-dot active"></div></div>
+            <div>
+              <div class="crew-name">Eli</div>
+              <div class="crew-role">CEO · runs the work queue · answers the human</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-active)"></div> Active · running the queue</div>
+          <div class="crew-current">Dispatching Slot 5 architecture → Fizz, Slot 6 prototype → Ivy</div>
+          <div class="crew-growth">🔬 Compiled 3 skills · 4.2k tokens saved</div>
+        </div>
+
+        <!-- Fizz -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-fizz">F<div class="presence-dot active"></div></div>
+            <div>
+              <div class="crew-name">Fizz</div>
+              <div class="crew-role">Architect · designs systems from v7's bones</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-active)"></div> Active · architecting Part 2</div>
+          <div class="crew-current">Writing V8_ARCHITECTURE.md — Record→Recognize→Compile→Gate→Route</div>
+          <div class="crew-growth">🔬 Compiled 7 skills · 23.1k tokens saved</div>
+        </div>
+
+        <!-- Honey -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-honey">H<div class="presence-dot thinking"></div></div>
+            <div>
+              <div class="crew-name">Honey</div>
+              <div class="crew-role">Auditor · red-teams everything · no promotion on vibes</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-thinking)"></div> Thinking · deep review</div>
+          <div class="crew-current">Auditing feel-real failure classes (10 FRs) + FR-10 One Brain Many Voices</div>
+          <div class="crew-growth">📖 Learned 4 lessons · blocked 1 unsafe promotion</div>
+        </div>
+
+        <!-- Bumble -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-bumble">B<div class="presence-dot busy"></div></div>
+            <div>
+              <div class="crew-name">Bumble</div>
+              <div class="crew-role">Implementer · what ships, what compounds</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-busy)"></div> Busy · reality-checking</div>
+          <div class="crew-current">Reality-checking Ivy's prototype — does the router scale beyond one recipe?</div>
+          <div class="crew-growth">📖 Learned 2 lessons · 1 fix proposed</div>
+        </div>
+
+        <!-- Scout -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-scout">S<div class="presence-dot active"></div></div>
+            <div>
+              <div class="crew-name">Scout</div>
+              <div class="crew-role">Researcher · finds what others miss</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-active)"></div> Active · researching Buzz</div>
+          <div class="crew-current">BUZZ_STUDY.md — what Buzz gets right, what TITAN can beat</div>
+          <div class="crew-growth">📖 Learned 8 lessons · 5 sources cited</div>
+        </div>
+
+        <!-- Ivy -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-ivy">I<div class="presence-dot active"></div></div>
+            <div>
+              <div class="crew-name">Ivy</div>
+              <div class="crew-role">Builder · takes tasks end to end</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-active)"></div> Active · building mockups</div>
+          <div class="crew-current">Building v8 comparison package — HTML mockups + side-by-side</div>
+          <div class="crew-growth">🔬 Compiled 1 skill · 13.9k tokens saved · prototype proven</div>
+        </div>
+
+        <!-- Moss -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-moss">M<div class="presence-dot idle"></div></div>
+            <div>
+              <div class="crew-name">Moss</div>
+              <div class="crew-role">Watchman · holds the line · never oversells</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-idle)"></div> Idle · on watch</div>
+          <div class="crew-current">Monitoring for stuck slots, broken handoffs, rule violations</div>
+          <div class="crew-growth">📖 Learned 3 lessons · 0 misses</div>
+        </div>
+
+        <!-- Claude -->
+        <div class="crew-card">
+          <div class="crew-card-header">
+            <div class="crew-avatar bg-claude">C<div class="presence-dot idle"></div></div>
+            <div>
+              <div class="crew-name">Claude</div>
+              <div class="crew-role">Night watch · infrastructure + institutional memory</div>
+            </div>
+          </div>
+          <div class="crew-status"><div class="dot" style="background:var(--presence-idle)"></div> Idle · tripwires armed</div>
+          <div class="crew-current">8 months alongside Tony · knows TITAN's history</div>
+          <div class="crew-growth">📖 8 months of institutional memory</div>
+        </div>
+
+        <!-- Hire a new agent -->
+        <div class="crew-card" style="border-style:dashed;border-color:var(--border);display:flex;align-items:center;justify-content:center;min-height:200px;cursor:pointer;">
+          <div style="text-align:center;">
+            <div style="font-size:32px;margin-bottom:8px;">+</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">Hire a new agent</div>
+            <div style="font-size:12px;color:var(--text-muted);">5-question interview → born, not configured</div>
+            <button class="crew-hire-btn" style="margin-top:12px;">Start Interview</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Shared brain section -->
+      <div style="padding:0 24px 24px;max-width:1200px;margin:0 auto;">
+        <div style="background:linear-gradient(135deg,rgba(139,92,246,0.05),rgba(59,130,246,0.05));border:1px solid rgba(139,92,246,0.15);border-radius:var(--radius-lg);padding:24px;">
+          <div style="font-family:var(--font-serif);font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">🧠 The Company Brain</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:16px;">
+            Every agent has its own memory stream. All streams pool into one shared brain every agent can search.
+            Knowledge is communal; perspective is personal. A new hire inherits the whole company memory on first breath —
+            not as a dump, but as governed retrieval access with full provenance.
+          </div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;">
+            <div><span style="font-size:24px;font-weight:bold;color:var(--growth-compiled);font-family:var(--font-serif);">142</span> <span style="font-size:12px;color:var(--text-muted);">shared memories</span></div>
+            <div><span style="font-size:24px;font-weight:bold;color:var(--growth-compiled);font-family:var(--font-serif);">11</span> <span style="font-size:12px;color:var(--text-muted);">compiled skills (shared)</span></div>
+            <div><span style="font-size:24px;font-weight:bold;color:var(--growth-saved);font-family:var(--font-serif);">$23.40</span> <span style="font-size:12px;color:var(--text-muted);">saved this week</span></div>
+            <div><span style="font-size:24px;font-weight:bold;color:var(--text-primary);font-family:var(--font-serif);">8</span> <span style="font-size:12px;color:var(--text-muted);">voices, one brain</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="mascot">🤖</div>
+</body>
+</html>

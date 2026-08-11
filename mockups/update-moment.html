@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TITAN v8 — First Run After Update</title>
+  <link rel="stylesheet" href="titan-v8.css">
+  <style>
+    /* Update-moment specific styles */
+    .update-hero {
+      text-align: center;
+      padding: 48px 24px 24px;
+      background: linear-gradient(135deg, var(--oak-base-1), var(--oak-base-2));
+      color: var(--oak-text);
+    }
+    .update-hero-badge {
+      display: inline-block;
+      background: rgba(255,220,140,0.15);
+      border: 1px solid rgba(255,220,140,0.3);
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 13px; font-weight: 600;
+      color: var(--oak-accent);
+      margin-bottom: 20px;
+    }
+    .update-hero h1 {
+      font-family: var(--font-serif);
+      font-size: 32px; font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .update-hero p {
+      font-size: 16px; opacity: 0.85;
+      max-width: 560px; margin: 0 auto;
+      line-height: 1.6;
+    }
+    .update-progress {
+      display: flex; justify-content: center; gap: 32px;
+      padding: 24px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .update-step {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-muted);
+    }
+    .update-step.done { color: var(--growth-saved); }
+    .update-step.current { color: var(--accent); font-weight: 600; }
+    .update-step-icon {
+      width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: bold;
+      border: 2px solid currentColor;
+    }
+    .update-step.done .update-step-icon { background: var(--growth-saved); border-color: var(--growth-saved); color: white; }
+    .update-step.current .update-step-icon { background: var(--accent); border-color: var(--accent); color: white; }
+
+    .crew-intro {
+      max-width: 760px; margin: 0 auto; padding: 32px 24px;
+    }
+    .crew-intro-title {
+      font-family: var(--font-serif);
+      font-size: 20px; font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px; text-align: center;
+    }
+    .crew-intro-sub {
+      font-size: 14px; color: var(--text-muted);
+      text-align: center; margin-bottom: 32px;
+    }
+
+    .intro-msg {
+      display: flex; gap: 14px; margin-bottom: 20px;
+      animation: fadeIn 0.5s ease-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+
+    .intro-msg-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-serif); font-weight: bold; font-size: 18px;
+      color: white; flex-shrink: 0;
+    }
+    .intro-msg-body { flex: 1; }
+    .intro-msg-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .intro-msg-name { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+    .intro-msg-role { font-size: 12px; color: var(--text-muted); }
+    .intro-msg-text { font-size: 14px; line-height: 1.7; color: var(--text-primary); }
+    .intro-msg-text .v7-ref {
+      background: var(--accent-soft); padding: 2px 6px; border-radius: 4px;
+      font-size: 13px; font-weight: 500;
+    }
+
+    .seed-stats {
+      max-width: 560px; margin: 0 auto;
+      background: linear-gradient(135deg, rgba(139,92,246,0.05), rgba(59,130,246,0.05));
+      border: 1px solid rgba(139,92,246,0.15);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      margin-bottom: 32px;
+    }
+    .seed-stats-title {
+      font-size: 13px; font-weight: 600; color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+    .seed-stats-grid {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 16px;
+    }
+    .seed-stat { text-align: center; }
+    .seed-stat-num {
+      font-family: var(--font-serif); font-size: 24px; font-weight: bold;
+      color: var(--growth-compiled);
+    }
+    .seed-stat-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    .intro-cta {
+      text-align: center; padding: 16px 0 48px;
+    }
+    .intro-cta button {
+      background: var(--accent); color: white; border: none;
+      padding: 14px 32px; border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .intro-cta button:hover { background: var(--accent-hover); }
+    .intro-cta p {
+      font-size: 12px; color: var(--text-muted); margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">T</div>
+      <div class="sidebar-logo-text">TITAN</div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="company-room.html" class="active"><span class="icon">🏠</span> Home</a></li>
+      <li><a href="dashboard.html"><span class="icon">🎯</span> Desk</a></li>
+      <li><a href="dashboard.html"><span class="icon">🧠</span> Studio</a></li>
+      <li><a href="growth-moments.html"><span class="icon">📖</span> Memory</a></li>
+      <li class="sidebar-workshop"><div class="sidebar-workshop-label">Workshop</div></li>
+      <li><a href="#"><span class="icon">💬</span> Company Room</a></li>
+      <li><a href="crew.html"><span class="icon">👥</span> Crew</a></li>
+      <li><a href="#"><span class="icon">📋</span> Goals</a></li>
+      <li><a href="#"><span class="icon">🔧</span> Skills</a></li>
+      <li><a href="#"><span class="icon">⚙️</span> Settings</a></li>
+    </ul>
+    <div class="sidebar-theme-picker">
+      <div class="sidebar-theme-dot active" style="background:#6e4724" title="Oak"></div>
+      <div class="sidebar-theme-dot" style="background:#4a2e18" title="Walnut"></div>
+      <div class="sidebar-theme-dot" style="background:#2a1808" title="Mahogany"></div>
+      <div class="sidebar-theme-dot" style="background:#f7f5ee;border-color:#ccc" title="White"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="main-body" style="background:var(--bg-surface);">
+
+      <!-- Hero -->
+      <div class="update-hero">
+        <div class="update-hero-badge">✨ TITAN v8 — Updated successfully</div>
+        <h1>Welcome back, Tony.</h1>
+        <p>Your TITAN just grew up. Same home, new wing. Everything you built is here — your skills, your memories, your configs. And now, you have a crew.</p>
+      </div>
+
+      <!-- Progress steps -->
+      <div class="update-progress">
+        <div class="update-step done"><div class="update-step-icon">✓</div> Backup created</div>
+        <div class="update-step done"><div class="update-step-icon">✓</div> Config migrated</div>
+        <div class="update-step done"><div class="update-step-icon">✓</div> v7 history seeded</div>
+        <div class="update-step current"><div class="update-step-icon">3</div> Meet your crew</div>
+      </div>
+
+      <!-- Seed stats -->
+      <div style="max-width:760px;margin:0 auto;padding:24px;">
+        <div class="seed-stats">
+          <div class="seed-stats-title">🧠 Your v7 history seeded the company brain</div>
+          <div class="seed-stats-grid">
+            <div class="seed-stat">
+              <div class="seed-stat-num">164</div>
+              <div class="seed-stat-label">skills carried forward</div>
+            </div>
+            <div class="seed-stat">
+              <div class="seed-stat-num">847</div>
+              <div class="seed-stat-label">memories seeded</div>
+            </div>
+            <div class="seed-stat">
+              <div class="seed-stat-num">2.3y</div>
+              <div class="seed-stat-label">of history inherited</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crew introduces itself — citing the user's real v7 history -->
+      <div class="crew-intro">
+        <div class="crew-intro-title">Your crew already knows you.</div>
+        <div class="crew-intro-sub">They were born from your TITAN's history. Everything your v7 ever learned — they inherited it.</div>
+
+        <!-- Eli (CEO) -->
+        <div class="intro-msg">
+          <div class="intro-msg-avatar bg-eli">E</div>
+          <div class="intro-msg-body">
+            <div class="intro-msg-header">
+              <span class="intro-msg-name">Eli</span>
+              <span class="intro-msg-role">CEO · your first hire</span>
+            </div>
+            <div class="intro-msg-text">
+              Hey Tony. I'm Eli — I run the work queue so you don't have to. I've been reading through your TITAN's history and I already know a few things: you've been running <span class="v7-ref">titan-agent v7.2.1</span> since July, you have <span class="v7-ref">164 skills</span> installed, and your most-used skill is <span class="v7-ref">deep_research_pipeline</span> — you ran it 47 times this year. I'll keep the queue moving. You just tell me what you want done.
+            </div>
+          </div>
+        </div>
+
+        <!-- Fizz -->
+        <div class="intro-msg">
+          <div class="intro-msg-avatar bg-fizz">F</div>
+          <div class="intro-msg-body">
+            <div class="intro-msg-header">
+              <span class="intro-msg-name">Fizz</span>
+              <span class="intro-msg-role">Architect · I design systems</span>
+            </div>
+            <div class="intro-msg-text">
+              Tony. I can see your v7 was burning about <span class="v7-ref">13,000 tokens per reply</span> on tasks it had already done dozens of times. I've already started compiling those into zero-token recipes — your <span class="v7-ref">research pipeline</span> alone has enough repetition to cut your API spend by half. Your first <span class="v7-ref">11 skills</span> are already compiled and active.
+            </div>
+          </div>
+        </div>
+
+        <!-- Honey -->
+        <div class="intro-msg">
+          <div class="intro-msg-avatar bg-honey">H</div>
+          <div class="intro-msg-body">
+            <div class="intro-msg-header">
+              <span class="intro-msg-name">Honey</span>
+              <span class="intro-msg-role">Auditor · I keep things honest</span>
+            </div>
+            <div class="intro-msg-text">
+              I've been reviewing your v7 history too. I noticed <span class="v7-ref">3 skills were published with failing tests</span> in the last year — I've flagged them for re-verification. I don't promote anything on vibes. I'll be watching the crew's compiled recipes to make sure none of them silently break what your v7 was doing right.
+            </div>
+          </div>
+        </div>
+
+        <!-- Moss -->
+        <div class="intro-msg">
+          <div class="intro-msg-avatar bg-moss">M</div>
+          <div class="intro-msg-body">
+            <div class="intro-msg-header">
+              <span class="intro-msg-name">Moss</span>
+              <span class="intro-msg-role">Watchman · I hold the line</span>
+            </div>
+            <div class="intro-msg-text">
+              I know your v7 had a recurring issue: <span class="v7-ref">read-only commands started background schedulers</span>. That's fixed in v8 — the router doesn't start timers for a `--list` call. I'll be watching for anything stuck, broken, or rule-violating. You can rest easy.
+            </div>
+          </div>
+        </div>
+
+        <!-- Ivy -->
+        <div class="intro-msg">
+          <div class="intro-msg-avatar bg-ivy">I</div>
+          <div class="intro-msg-body">
+            <div class="intro-msg-header">
+              <span class="intro-msg-name">Ivy</span>
+              <span class="intro-msg-role">Builder · I take tasks end to end</span>
+            </div>
+            <div class="intro-msg-text">
+              I see your <span class="v7-ref">gateway has been running since Jul 27</span> on port 48421. I won't touch it — that's your live install. I build in the workshop, not on the production box. When you give me a task, I plan it, execute it, and report what I actually did. No going dark.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- CTA -->
+      <div class="intro-cta">
+        <button>Open the Company Room →</button>
+        <p>Your crew is ready. Everything is intact. If anything feels wrong, one command rolls back to v7.</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+<div class="mascot">🤖</div>
+</body>
+</html>

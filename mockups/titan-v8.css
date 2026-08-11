@@ -1,0 +1,469 @@
+/* TITAN v8 Mockup Stylesheet — shared across all screens
+ * Visual language: same warm oak desk palette as v7 (DeskSurface oak theme),
+ * same 5-door sidebar, same serif accents. v8 adds the Company Room as
+ * default surface and living crew presence.
+ */
+
+:root {
+  /* v7 oak desk palette — from DeskSurface.tsx THEMES.oak */
+  --oak-base-1: #6e4724;
+  --oak-base-2: #5a3717;
+  --oak-base-3: #482a13;
+  --oak-knot: rgba(40,18,8,0.55);
+  --oak-glow: rgba(255,220,140,0.18);
+  --oak-vignette: rgba(0,0,0,0.45);
+  --oak-text: #f3e9d0;
+  --oak-accent: #f3d27a;
+  --oak-border: #8a6a3a;
+  --oak-paper: #f7f5ee;
+
+  /* Semantic tokens */
+  --bg-primary: #3a2210;
+  --bg-secondary: #482a13;
+  --bg-surface: rgba(247,245,238,0.96);
+  --bg-card: #ffffff;
+  --bg-card-hover: #faf8f3;
+  --text-primary: #2a1808;
+  --text-secondary: #6b5a42;
+  --text-muted: #9a8a72;
+  --text-on-dark: #f3e9d0;
+  --accent: #c8954a;
+  --accent-hover: #b07e35;
+  --accent-soft: rgba(200,149,74,0.12);
+  --border: #e0d8c8;
+  --border-dark: #8a6a3a;
+
+  /* Presence dots */
+  --presence-active: #4ade80;
+  --presence-thinking: #fbbf24;
+  --presence-busy: #f97316;
+  --presence-idle: #94a3b8;
+  --presence-offline: #6b7280;
+
+  /* Growth colors */
+  --growth-compiled: #8b5cf6;
+  --growth-learned: #3b82f6;
+  --growth-saved: #10b981;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --shadow-warm: 0 4px 16px rgba(110,71,36,0.15);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+  --sidebar-w: 220px;
+  --presence-w: 260px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: linear-gradient(135deg, var(--oak-base-1), var(--oak-base-2) 40%, var(--oak-base-3));
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Wood grain overlay (subtle, from DeskSurface) ────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    repeating-linear-gradient(
+      92deg,
+      transparent 0px, transparent 3px,
+      rgba(255,180,90,0.03) 3px, rgba(255,180,90,0.03) 4px
+    ),
+    radial-gradient(ellipse at 20% 30%, rgba(255,220,140,0.08), transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(255,220,140,0.05), transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+.app { display: flex; min-height: 100vh; position: relative; z-index: 1; }
+
+/* ── Sidebar (5 doors — same as v7 TitanShell) ────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: linear-gradient(180deg, var(--oak-base-2), var(--oak-base-3));
+  border-right: 1px solid var(--oak-border);
+  padding: 16px 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-logo {
+  padding: 0 20px 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar-logo-mark {
+  width: 32px; height: 32px;
+  background: var(--oak-accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-serif);
+  font-weight: bold; font-size: 18px; color: var(--oak-base-3);
+}
+.sidebar-logo-text {
+  font-family: var(--font-serif);
+  font-size: 18px; font-weight: bold;
+  color: var(--oak-text);
+  letter-spacing: 0.02em;
+}
+
+.sidebar-nav { list-style: none; flex: 1; }
+.sidebar-nav li { margin: 2px 12px; }
+.sidebar-nav a {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--oak-text);
+  opacity: 0.7;
+  font-size: 14px; font-weight: 500;
+  transition: all 0.15s ease;
+}
+.sidebar-nav a:hover { opacity: 1; background: rgba(255,220,140,0.08); }
+.sidebar-nav a.active {
+  opacity: 1;
+  background: rgba(255,220,140,0.15);
+  box-shadow: inset 0 0 0 1px rgba(255,220,140,0.2);
+}
+.sidebar-nav a .icon { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.sidebar-nav a .badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: white;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 10px;
+  min-width: 18px; text-align: center;
+}
+
+.sidebar-workshop { margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(138,106,58,0.3); }
+.sidebar-workshop-label {
+  padding: 4px 20px 8px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--oak-text); opacity: 0.4;
+}
+
+.sidebar-theme-picker {
+  padding: 12px 16px;
+  display: flex; gap: 8px; align-items: center;
+}
+.sidebar-theme-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer;
+}
+.sidebar-theme-dot.active { border-color: var(--oak-accent); }
+
+/* ── Main content area ────────────────────────────────────────────── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.main-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+}
+.main-header-title {
+  font-family: var(--font-serif);
+  font-size: 20px; font-weight: 600;
+  color: var(--text-primary);
+}
+.main-header-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+.main-body {
+  flex: 1; overflow-y: auto;
+  background: var(--bg-surface);
+}
+
+/* ── Presence rail (right side) ───────────────────────────────────── */
+.presence-rail {
+  width: var(--presence-w);
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.presence-rail-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: 12px; font-weight: 600;
+}
+.presence-card {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px; border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.presence-card:hover { background: var(--bg-card-hover); }
+.presence-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-serif); font-weight: bold; font-size: 15px;
+  color: white; flex-shrink: 0; position: relative;
+}
+.presence-dot {
+  position: absolute; bottom: -1px; right: -1px;
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--bg-surface);
+}
+.presence-dot.active { background: var(--presence-active); }
+.presence-dot.thinking { background: var(--presence-thinking); }
+.presence-dot.busy { background: var(--presence-busy); }
+.presence-dot.idle { background: var(--presence-idle); }
+.presence-dot.offline { background: var(--presence-offline); }
+.presence-info { flex: 1; min-width: 0; }
+.presence-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.presence-task { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.presence-mood {
+  font-size: 11px; color: var(--text-secondary); font-style: italic;
+  margin-top: 2px;
+}
+
+/* ── Chat room (Company Room) ─────────────────────────────────────── */
+.chat-container { display: flex; flex-direction: column; height: 100%; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 20px 24px; max-width: 800px; margin: 0 auto; width: 100%; }
+.chat-day-divider { text-align: center; margin: 20px 0; font-size: 12px; color: var(--text-muted); }
+.chat-day-divider span { background: var(--border); color: var(--text-secondary); padding: 4px 12px; border-radius: 12px; }
+
+.chat-msg { display: flex; gap: 12px; margin-bottom: 18px; }
+.chat-msg-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-serif); font-weight: bold; font-size: 15px;
+  color: white; flex-shrink: 0;
+}
+.chat-msg-body { flex: 1; min-width: 0; }
+.chat-msg-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.chat-msg-name { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.chat-msg-role { font-size: 11px; color: var(--text-muted); }
+.chat-msg-time { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.chat-msg-text {
+  font-size: 14px; line-height: 1.6; color: var(--text-primary);
+  white-space: pre-wrap; word-wrap: break-word;
+}
+.chat-msg-text strong { color: var(--text-primary); }
+.chat-msg-text code {
+  font-family: var(--font-mono); font-size: 13px;
+  background: var(--accent-soft); padding: 2px 5px; border-radius: 3px;
+}
+.chat-msg-text .mention { color: var(--accent); font-weight: 600; }
+.chat-msg-learned {
+  margin-top: 10px; padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.06));
+  border: 1px solid rgba(139,92,246,0.15); border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 10px;
+}
+.chat-msg-learned-icon { font-size: 18px; }
+.chat-msg-learned-text { font-size: 13px; color: var(--text-secondary); }
+.chat-msg-learned-text strong { color: var(--growth-compiled); }
+
+.chat-input-bar {
+  border-top: 1px solid var(--border);
+  padding: 16px 24px;
+  background: var(--bg-card);
+  display: flex; gap: 12px; align-items: flex-end;
+  max-width: 800px; margin: 0 auto; width: 100%;
+}
+.chat-input {
+  flex: 1;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 12px 16px; font-size: 14px; font-family: var(--font-sans);
+  color: var(--text-primary); background: var(--bg-card);
+  outline: none; transition: border-color 0.15s;
+  min-height: 44px; resize: none;
+}
+.chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-send {
+  background: var(--accent); color: white; border: none;
+  padding: 12px 20px; border-radius: var(--radius-md);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s;
+}
+.chat-send:hover { background: var(--accent-hover); }
+
+/* ── Cards (crew, growth, dashboard) ──────────────────────────────── */
+.card-grid {
+  display: grid; gap: 16px;
+  padding: 24px; max-width: 1200px; margin: 0 auto;
+}
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px;
+  box-shadow: var(--shadow-sm); transition: box-shadow 0.2s;
+}
+.card:hover { box-shadow: var(--shadow-md); }
+.card-title {
+  font-family: var(--font-serif); font-size: 16px; font-weight: 600;
+  color: var(--text-primary); margin-bottom: 8px;
+}
+.card-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+/* ── Crew cards ───────────────────────────────────────────────────── */
+.crew-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px;
+  box-shadow: var(--shadow-sm); transition: all 0.2s;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.crew-card:hover { box-shadow: var(--shadow-md); border-color: var(--accent); }
+.crew-card-header { display: flex; align-items: center; gap: 14px; }
+.crew-avatar {
+  width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-serif); font-weight: bold; font-size: 22px;
+  color: white; flex-shrink: 0; position: relative;
+}
+.crew-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.crew-role { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.crew-status {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.crew-status .dot { width: 8px; height: 8px; border-radius: 50%; }
+.crew-current {
+  font-size: 13px; color: var(--text-secondary);
+  padding: 10px 12px; background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+}
+.crew-growth {
+  font-size: 12px; color: var(--growth-compiled);
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 0;
+}
+.crew-hire-btn {
+  background: var(--accent); color: white; border: none;
+  padding: 10px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  text-align: center; transition: background 0.15s;
+}
+.crew-hire-btn:hover { background: var(--accent-hover); }
+
+/* ── Growth moment cards ──────────────────────────────────────────── */
+.growth-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: var(--shadow-sm); transition: box-shadow 0.2s;
+}
+.growth-card:hover { box-shadow: var(--shadow-md); }
+.growth-card-banner {
+  padding: 16px 20px; display: flex; align-items: center; gap: 14px;
+}
+.growth-card-banner.compiled { background: linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.02)); }
+.growth-card-banner.learned { background: linear-gradient(135deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02)); }
+.growth-card-banner.saved { background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.02)); }
+.growth-card-icon { font-size: 28px; }
+.growth-card-type {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+  font-weight: 700; margin-bottom: 2px;
+}
+.growth-card-type.compiled { color: var(--growth-compiled); }
+.growth-card-type.learned { color: var(--growth-learned); }
+.growth-card-type.saved { color: var(--growth-saved); }
+.growth-card-detail { padding: 14px 20px; border-top: 1px solid var(--border); }
+.growth-card-detail-row {
+  display: flex; justify-content: space-between;
+  font-size: 12px; margin-bottom: 4px;
+}
+.growth-card-detail-label { color: var(--text-muted); }
+.growth-card-detail-val { color: var(--text-secondary); font-weight: 500; }
+
+/* ── Dashboard ───────────────────────────────────────────────────── */
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 24px; max-width: 1200px; margin: 0 auto; }
+.dash-stat {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 20px;
+  box-shadow: var(--shadow-sm); text-align: center;
+}
+.dash-stat-num {
+  font-family: var(--font-serif); font-size: 36px; font-weight: bold;
+  color: var(--accent);
+}
+.dash-stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+.dash-section { padding: 0 24px 24px; max-width: 1200px; margin: 0 auto; }
+.dash-section-title { font-family: var(--font-serif); font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+.dash-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: 8px; box-shadow: var(--shadow-sm);
+}
+.dash-row-pulse { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dash-row-pulse.green { background: var(--presence-active); box-shadow: 0 0 6px var(--presence-active); }
+.dash-row-pulse.yellow { background: var(--presence-thinking); }
+.dash-row-pulse.red { background: #ef4444; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.dash-row-text { flex: 1; font-size: 14px; color: var(--text-primary); }
+.dash-row-meta { font-size: 12px; color: var(--text-muted); }
+
+/* ── Mascot (the roving mascot from v7) ───────────────────────────── */
+.mascot {
+  position: fixed; bottom: 20px; right: 24px;
+  width: 48px; height: 48px;
+  background: var(--oak-accent); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; box-shadow: var(--shadow-warm);
+  cursor: pointer; z-index: 100;
+  transition: transform 0.2s;
+}
+.mascot:hover { transform: scale(1.1); }
+
+/* ── Color palette for agent avatars ──────────────────────────────── */
+.bg-eli { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+.bg-fizz { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.bg-honey { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+.bg-bumble { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.bg-scout { background: linear-gradient(135deg, #10b981, #059669); }
+.bg-ivy { background: linear-gradient(135deg, #ec4899, #db2777); }
+.bg-moss { background: linear-gradient(135deg, #6b7280, #4b5563); }
+.bg-claude { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+.bg-tony { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.bg-new { background: linear-gradient(135deg, #94a3b8, #64748b); }
+
+/* ── Index page ───────────────────────────────────────────────────── */
+.index-hero {
+  text-align: center; padding: 60px 24px 40px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+.index-hero h1 {
+  font-family: var(--font-serif); font-size: 36px; font-weight: bold;
+  color: var(--text-primary); margin-bottom: 12px;
+}
+.index-hero p { font-size: 16px; color: var(--text-secondary); max-width: 600px; margin: 0 auto; }
+.index-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px; padding: 40px 24px; max-width: 1200px; margin: 0 auto;
+}
+.index-card {
+  display: block; text-decoration: none;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: var(--shadow-sm); transition: all 0.2s;
+}
+.index-card:hover { box-shadow: var(--shadow-lg); border-color: var(--accent); transform: translateY(-2px); }
+.index-card-thumb {
+  height: 160px; display: flex; align-items: center; justify-content: center;
+  font-size: 48px;
+}
+.index-card-thumb.room { background: linear-gradient(135deg, #6e4724, #482a13); }
+.index-card-thumb.crew { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+.index-card-thumb.growth { background: linear-gradient(135deg, #10b981, #059669); }
+.index-card-thumb.dash { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.index-card-body { padding: 20px; }
+.index-card-title { font-family: var(--font-serif); font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.index-card-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }

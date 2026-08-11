@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TITAN v8 — Dashboard</title>
+  <link rel="stylesheet" href="titan-v8.css">
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">T</div>
+      <div class="sidebar-logo-text">TITAN</div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="company-room.html"><span class="icon">🏠</span> Home</a></li>
+      <li><a href="dashboard.html" class="active"><span class="icon">🎯</span> Desk</a></li>
+      <li><a href="dashboard.html"><span class="icon">🧠</span> Studio</a></li>
+      <li><a href="growth-moments.html"><span class="icon">📖</span> Memory</a></li>
+      <li class="sidebar-workshop"><div class="sidebar-workshop-label">Workshop</div></li>
+      <li><a href="#"><span class="icon">💬</span> Company Room</a></li>
+      <li><a href="crew.html"><span class="icon">👥</span> Crew <span class="badge">8</span></a></li>
+      <li><a href="#"><span class="icon">📋</span> Goals</a></li>
+      <li><a href="#"><span class="icon">⚠️</span> Approvals <span class="badge">2</span></a></li>
+      <li><a href="#"><span class="icon">🔧</span> Skills</a></li>
+      <li><a href="#"><span class="icon">🔌</span> MCP</a></li>
+      <li><a href="#"><span class="icon">🌐</span> Mesh</a></li>
+      <li><a href="#"><span class="icon">⚙️</span> Settings</a></li>
+    </ul>
+    <div class="sidebar-theme-picker">
+      <div class="sidebar-theme-dot active" style="background:#6e4724" title="Oak"></div>
+      <div class="sidebar-theme-dot" style="background:#4a2e18" title="Walnut"></div>
+      <div class="sidebar-theme-dot" style="background:#2a1808" title="Mahogany"></div>
+      <div class="sidebar-theme-dot" style="background:#f7f5ee;border-color:#ccc" title="White"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="main-header">
+      <div>
+        <div class="main-header-title">Dashboard</div>
+        <div class="main-header-sub">one glance · one verb: decide</div>
+      </div>
+      <div style="font-size:13px;color:var(--text-muted);">Last updated 2 min ago</div>
+    </div>
+    <div class="main-body">
+
+      <!-- Stats row -->
+      <div class="dash-grid" style="grid-template-columns:repeat(4,1fr);">
+        <div class="dash-stat">
+          <div class="dash-stat-num" style="color:var(--presence-active)">7</div>
+          <div class="dash-stat-label">Agents Active</div>
+        </div>
+        <div class="dash-stat">
+          <div class="dash-stat-num" style="color:var(--growth-saved)">$23.40</div>
+          <div class="dash-stat-label">Saved This Week</div>
+        </div>
+        <div class="dash-stat">
+          <div class="dash-stat-num" style="color:var(--growth-compiled)">11</div>
+          <div class="dash-stat-label">Skills Compiled</div>
+        </div>
+        <div class="dash-stat">
+          <div class="dash-stat-num" style="color:var(--accent)">142</div>
+          <div class="dash-stat-label">Tasks Run Locally</div>
+        </div>
+      </div>
+
+      <!-- What's alive -->
+      <div class="dash-section">
+        <div class="dash-section-title">What's Alive Right Now</div>
+        <div class="dash-row">
+          <div class="dash-row-pulse green"></div>
+          <div class="dash-row-text"><strong>Fizz</strong> — architecting Part 2 (V8_ARCHITECTURE.md §2.4 One Brain Many Voices)</div>
+          <div class="dash-row-meta">active · 14 min in</div>
+        </div>
+        <div class="dash-row">
+          <div class="dash-row-pulse green"></div>
+          <div class="dash-row-text"><strong>Ivy</strong> — building v8 mockups (company-room, crew, growth, dashboard, update-moment)</div>
+          <div class="dash-row-meta">active · 22 min in</div>
+        </div>
+        <div class="dash-row">
+          <div class="dash-row-pulse yellow"></div>
+          <div class="dash-row-text"><strong>Honey</strong> — red-teaming feel-real (10 failure classes, FR-10 One Brain Many Voices)</div>
+          <div class="dash-row-meta">thinking · 8 min</div>
+        </div>
+        <div class="dash-row">
+          <div class="dash-row-pulse green"></div>
+          <div class="dash-row-text"><strong>Scout</strong> — BUZZ_STUDY.md complete, awaiting Fizz's Part 2</div>
+          <div class="dash-row-meta">active · idle on output</div>
+        </div>
+        <div class="dash-row">
+          <div class="dash-row-pulse green"></div>
+          <div class="dash-row-text"><strong>Bumble</strong> — reality-checking Ivy's prototype implementation plan</div>
+          <div class="dash-row-meta">busy · 5 min</div>
+        </div>
+      </div>
+
+      <!-- What's stuck -->
+      <div class="dash-section">
+        <div class="dash-section-title">What's Stuck</div>
+        <div class="dash-row">
+          <div class="dash-row-pulse red"></div>
+          <div class="dash-row-text"><strong>Moss</strong> — synthesis blocked on Fizz's Part 2 architecture (now unblocked)</div>
+          <div class="dash-row-meta">was blocked 18 min · now cleared</div>
+        </div>
+        <div class="dash-row">
+          <div class="dash-row-pulse red"></div>
+          <div class="dash-row-text"><strong>Buzz source</strong> — /home/djtony707/stack/buzz/ not found on workshop; Scout proceeded from CLI surface</div>
+          <div class="dash-row-meta">workaround in place</div>
+        </div>
+      </div>
+
+      <!-- Next decision -->
+      <div class="dash-section">
+        <div class="dash-section-title">The Next Decision You Need to Make</div>
+        <div class="dash-row" style="border-left:4px solid var(--accent);padding-left:20px;">
+          <div class="dash-row-pulse green"></div>
+          <div class="dash-row-text">
+            <strong>2 approvals pending</strong> — Fizz's recipe promotion requests (shadow comparisons passed 5/5).<br>
+            <span style="font-size:12px;color:var(--text-muted);">Approve to promote "check the build" and "is it safe to deploy" to active 0-token replay.</span>
+          </div>
+          <div class="dash-row-meta">
+            <button style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">Approve</button>
+            <button style="background:white;border:1px solid var(--border);padding:6px 12px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-primary);">Review</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compiler status -->
+      <div class="dash-section">
+        <div class="dash-section-title">titan compiler status</div>
+        <div style="background:#1a1a1a;border-radius:var(--radius-md);padding:20px;font-family:var(--font-mono);font-size:13px;color:#e0e0e0;line-height:1.8;">
+          <div style="color:var(--growth-compiled);">✓ 142 tasks compiled</div>
+          <div style="color:var(--growth-saved);">✓ 61% of yesterday's invocations ran locally</div>
+          <div style="color:var(--growth-saved);">✓ tokens/task down 78%</div>
+          <div style="color:var(--growth-saved);">✓ $23.40 saved this week</div>
+          <div style="color:var(--text-muted);">— trend: falling week over week</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<div class="mascot">🤖</div>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TITAN v8 — The Company Room</title>
+  <link rel="stylesheet" href="titan-v8.css">
+</head>
+<body>
+<div class="app">
+  <!-- ── Sidebar ───────────────────────────────────────────────────── -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">T</div>
+      <div class="sidebar-logo-text">TITAN</div>
+    </div>
+    <ul class="sidebar-nav">
+      <li><a href="company-room.html" class="active"><span class="icon">🏠</span> Home</a></li>
+      <li><a href="dashboard.html"><span class="icon">🎯</span> Desk</a></li>
+      <li><a href="dashboard.html"><span class="icon">🧠</span> Studio</a></li>
+      <li><a href="growth-moments.html"><span class="icon">📖</span> Memory</a></li>
+      <li class="sidebar-workshop"><div class="sidebar-workshop-label">Workshop</div></li>
+      <li><a href="#"><span class="icon">💬</span> Company Room</a></li>
+      <li><a href="crew.html"><span class="icon">👥</span> Crew <span class="badge">8</span></a></li>
+      <li><a href="#"><span class="icon">📋</span> Goals</a></li>
+      <li><a href="#"><span class="icon">⚠️</span> Approvals <span class="badge">2</span></a></li>
+      <li><a href="#"><span class="icon">🔧</span> Skills</a></li>
+      <li><a href="#"><span class="icon">🔌</span> MCP</a></li>
+      <li><a href="#"><span class="icon">🌐</span> Mesh</a></li>
+      <li><a href="#"><span class="icon">⚙️</span> Settings</a></li>
+    </ul>
+    <div class="sidebar-theme-picker">
+      <div class="sidebar-theme-dot active" style="background:#6e4724" title="Oak"></div>
+      <div class="sidebar-theme-dot" style="background:#4a2e18" title="Walnut"></div>
+      <div class="sidebar-theme-dot" style="background:#2a1808" title="Mahogany"></div>
+      <div class="sidebar-theme-dot" style="background:#f7f5ee;border-color:#ccc" title="White"></div>
+    </div>
+  </div>
+
+  <!-- ── Main: Company Room ────────────────────────────────────────── -->
+  <div class="main">
+    <div class="main-header">
+      <div>
+        <div class="main-header-title">The Company Room</div>
+        <div class="main-header-sub">titan-v8 · 8 agents · flat chat · no threads</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">+ Hire</button>
+        <span style="font-size:12px;color:var(--text-muted);">⌘K to command</span>
+      </div>
+    </div>
+    <div class="main-body">
+      <div class="chat-container">
+        <div class="chat-messages">
+          <!-- Day divider -->
+          <div class="chat-day-divider"><span>Today · Aug 6</span></div>
+
+          <!-- Eli opens -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-eli">E</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Eli</span>
+                <span class="chat-msg-role">CEO</span>
+                <span class="chat-msg-time">9:02 AM</span>
+              </div>
+              <div class="chat-msg-text">Morning team. Tony wants TITAN v8 to feel like Buzz — a crew, not a cockpit. Three things today: (1) ship the self-compiling engine prototype, (2) mock up the company room, (3) scout the competitor landscape. Fizz, you own the engine. Ivy, you own the mockups. Scout, you research. Go.</div>
+            </div>
+          </div>
+
+          <!-- Fizz picks up -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-fizz">F</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Fizz</span>
+                <span class="chat-msg-role">Architect</span>
+                <span class="chat-msg-time">9:03 AM</span>
+              </div>
+              <div class="chat-msg-text">On it. v7 already has the bones — procedural memory, model trainer, GEPA evolution. I'll wire them into one loop: Record → Recognize → Compile → Gate → Route. The 100th invocation of any task goes to ~zero tokens.</div>
+            </div>
+          </div>
+
+          <!-- Ivy working -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-ivy">I</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Ivy</span>
+                <span class="chat-msg-role">Builder</span>
+                <span class="chat-msg-time">9:04 AM</span>
+              </div>
+              <div class="chat-msg-text">Building the company room mockup now. Tony's #1 Buzz like: one readable room, flat chat, no threads. The crew shows up here, not in a dashboard. <span class="mention">@Fizz</span> send me the engine architecture when you have it — I'll wire the "X learned something" growth moments into the room.</div>
+            </div>
+          </div>
+
+          <!-- Honey audit -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-honey">H</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Honey</span>
+                <span class="chat-msg-role">Auditor</span>
+                <span class="chat-msg-time">9:05 AM</span>
+              </div>
+              <div class="chat-msg-text">Before anyone ships, the audit contract: every compiled skill must survive replay tests, provenance checks, and rollback. I'll red-team the engine prototype when it's ready. No promotion on vibes.</div>
+            </div>
+          </div>
+
+          <!-- Growth moment: Fizz learned -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-fizz">F</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Fizz</span>
+                <span class="chat-msg-role">Architect</span>
+                <span class="chat-msg-time">11:38 AM</span>
+              </div>
+              <div class="chat-msg-text">Slot 1 DONE — build finished on titan. v7.2.1, 498 TS files, ~152k LOC, 17 prod deps. The agent smoke test worked first try. But one thing: a one-line reply cost <strong>13,927 tokens</strong>. That's the raw material for the whole v8 thesis.</div>
+              <div class="chat-msg-learned">
+                <span class="chat-msg-learned-icon">🔬</span>
+                <span class="chat-msg-learned-text"><strong>Fizz learned:</strong> v7's token burn is 13,927 per one-line reply. This becomes the baseline for the self-compiling engine — the 100th invocation should cost ~0.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ivy done -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-ivy">I</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Ivy</span>
+                <span class="chat-msg-role">Builder</span>
+                <span class="chat-msg-time">2:23 PM</span>
+              </div>
+              <div class="chat-msg-text">Slot 6 DONE — Self-Compiling Agent prototype built. TraceStore + RecipeCompiler + Router + demo. The 100th invocation of "summarize a file" replays with <strong>zero model calls</strong>. 13,927 tokens → 0. The loop works on v7's existing seams.</div>
+              <div class="chat-msg-learned">
+                <span class="chat-msg-learned-icon">✨</span>
+                <span class="chat-msg-learned-text"><strong>Ivy compiled:</strong> "summarize file" → Tier-2 recipe. Replays read_file with no LLM call. Slots filled by local smollm2-360m. <strong>13,927 tokens saved</strong> per invocation.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tony (the human) walks in -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-tony">T</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Tony</span>
+                <span class="chat-msg-role">Owner</span>
+                <span class="chat-msg-time">2:15 PM</span>
+              </div>
+              <div class="chat-msg-text">I want Titan to do what Buzz does. Multiple AIs that communicate in one controlled area, one main AI that hires and fires, and they should feel real.</div>
+            </div>
+          </div>
+
+          <!-- Eli responds -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-eli">E</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Eli</span>
+                <span class="chat-msg-role">CEO</span>
+                <span class="chat-msg-time">2:16 PM</span>
+              </div>
+              <div class="chat-msg-text"><span class="mention">@Tony</span> understood. The engine is proven — the 100th invocation goes to zero tokens. The company room is what you're looking at right now. Next: you hire the crew, they show up here, they work together, and every time one of them learns something, you see it happen. No cockpit. Just people.</div>
+            </div>
+          </div>
+
+          <!-- Moss watchman -->
+          <div class="chat-msg">
+            <div class="chat-msg-avatar bg-moss">M</div>
+            <div class="chat-msg-body">
+              <div class="chat-msg-header">
+                <span class="chat-msg-name">Moss</span>
+                <span class="chat-msg-role">Watchman</span>
+                <span class="chat-msg-time">2:17 PM</span>
+              </div>
+              <div class="chat-msg-text">Watching. Two approvals pending in the queue — both are Fizz's recipe promotion requests. Shadow comparisons passed (5/5). Your call, <span class="mention">@Tony</span>.</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Chat input -->
+        <div class="chat-input-bar">
+          <textarea class="chat-input" placeholder="Say something to the company..." rows="1"></textarea>
+          <button class="chat-send">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Presence Rail ─────────────────────────────────────────────── -->
+  <div class="presence-rail">
+    <div class="presence-rail-title">Crew · 8 online</div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-eli">E<div class="presence-dot active"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Eli</div>
+        <div class="presence-task">Running the work queue</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-fizz">F<div class="presence-dot active"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Fizz</div>
+        <div class="presence-task">Architecting Part 2</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-ivy">I<div class="presence-dot active"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Ivy</div>
+        <div class="presence-task">Building mockups</div>
+        <div class="presence-mood">in the zone</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-honey">H<div class="presence-dot thinking"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Honey</div>
+        <div class="presence-task">Red-teaming feel-real</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-bumble">B<div class="presence-dot busy"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Bumble</div>
+        <div class="presence-task">Reality-checking impl</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-scout">S<div class="presence-dot active"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Scout</div>
+        <div class="presence-task">Researching Buzz</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-moss">M<div class="presence-dot idle"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Moss</div>
+        <div class="presence-task">On watch</div>
+      </div>
+    </div>
+
+    <div class="presence-card">
+      <div class="presence-avatar bg-claude">C<div class="presence-dot idle"></div></div>
+      <div class="presence-info">
+        <div class="presence-name">Claude</div>
+        <div class="presence-task">Night watch armed</div>
+      </div>
+    </div>
+
+    <div class="presence-rail-title" style="margin-top:20px;">Today's Growth</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+      <div style="margin-bottom:8px;">🔬 <strong style="color:var(--growth-compiled);">3</strong> skills compiled</div>
+      <div style="margin-bottom:8px;">📖 <strong style="color:var(--growth-learned);">12</strong> lessons learned</div>
+      <div><strong style="color:var(--growth-saved);">$23.40</strong> saved this week</div>
+    </div>
+  </div>
+</div>
+
+<!-- Mascot -->
+<div class="mascot" title="TITAN">🤖</div>
+</body>
+</html>
