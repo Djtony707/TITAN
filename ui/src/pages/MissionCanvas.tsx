@@ -107,6 +107,7 @@ interface DeskItem {
  */
 import type { RolledUpActivitySticky } from './mission/rollupActivityStickies';
 import { rollupActivityStickies, ACTIVITY_STICKY_CAP } from './mission/rollupActivityStickies';
+import { projectMissionTeam } from './mission/projectMissionTeam';
 type ActivitySticky = RolledUpActivitySticky;
 
 /**
@@ -341,14 +342,12 @@ export default function MissionCanvas() {
     // Cap is ACTIVITY_STICKY_CAP (12) ROLLED-UP groups, so the visible
     // sticky count is the same as before but each one can represent
     // many underlying actions.
-    return rollupActivityStickies(
-      room.team.map(m => ({
-        agentId: m.agentId,
-        name: m.name,
-        color: m.color,
-        activityLog: m.activityLog,
-      })),
-    );
+    //
+    // Bug #4 — projectMissionTeam includes hidden members (e.g. the goal
+    // driver) in activityMembers so their activityLog feeds stickies.
+    // The projection is pure and tested in tests/ui/bug4-hidden-driver-sticky.test.ts.
+    const { activityMembers } = projectMissionTeam(room.team);
+    return rollupActivityStickies(activityMembers);
   }, [room]);
   // Suppress unused-import warnings when the cap constant is referenced
   // only inside the helper. Keeping the named import here makes the cap
@@ -1305,7 +1304,7 @@ function DeskClock({ room }: { room: MissionRoom }) {
     : Math.max(0, now.getTime() - startMs);
   const elapsed = splitHMS(elapsedMs);
 
-  const { working, blocked } = countTeam(room);
+  const { working, blocked, total } = countTeam(room);
 
   return (
     <div
@@ -1349,7 +1348,7 @@ function DeskClock({ room }: { room: MissionRoom }) {
       >
         <ClockStat n={working} label="working" tone="accent" />
         <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
-        <ClockStat n={room.team.filter(m => !m.hidden).length} label="on team" tone="muted" />
+        <ClockStat n={total} label="on team" tone="muted" />
       </div>
     </div>
   );
@@ -2451,13 +2450,14 @@ const DUST_MOTES: Array<{ left: number; size: number; duration: number; delay: n
 // ── Small helpers (parity with chat view) ────────────────────────────
 
 function countTeam(room: MissionRoom) {
-  let working = 0, blocked = 0;
+  let working = 0, blocked = 0, total = 0;
   for (const m of room.team) {
     if (m.hidden) continue; // skip hidden system members (Bug #4)
+    total++;
     if (m.state === 'working' || m.state === 'editing') working++;
     if (m.state === 'blocked') blocked++;
   }
-  return { working, blocked };
+  return { working, blocked, total };
 }
 
 function statusBlurb(s: MissionRoom['status'], working: number, blocked: number): string {
