@@ -59,6 +59,7 @@ export const TITAN_SHELL_SECTIONS: ShellSection[] = [
       { label: 'Org Chart', route: '/team/org-chart', aliases: ['/command-post/org'] },
       { label: 'Company Room', route: '/team/company', aliases: ['/team/company-room'] },
       { label: 'Work Queue', route: '/team/queue', aliases: ['/team/work-queue'] },
+      { label: 'Record', route: '/team/record', aliases: ['/team/record-panel'] },
       { label: 'Personas', route: '/team/personas' },
       // Knowledge internals
       { label: 'Memory Graph', route: '/knowledge/memory-graph' },

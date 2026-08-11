@@ -204,7 +204,13 @@ class ReviewerTelemetryError extends Error {
 }
 
 /** Record a trace span for a worker or reviewer turn (best-effort).
- *  Writes only when config.record.enabled=true and not in bench mode. */
+ *  Writes only when config.record.enabled=true and not in bench mode.
+ *
+ *  v8 Slice 3 gate fix: also emits a matching `agent_turn` receipt with
+ *  the SAME `actionId` so the trace↔receipt join in `src/record/join.ts`
+ *  can populate receiptKind/receiptStatus/receiptSummary on every turn.
+ *  Without this receipt the join is unwired — spans exist but no
+ *  production path writes the `agent_turn` receipt they need. */
 async function recordDispatchSpan(
     kind: 'worker' | 'reviewer',
     req: { agentId: string; taskRef: string; attempt: number; spec?: string },
@@ -238,6 +244,29 @@ async function recordDispatchSpan(
             role: kind,
             usageMeasured: t?.measured === true,
             exit: t?.exit ?? 'unknown',
+        });
+
+        // Emit the matching agent_turn receipt — same actionId as the span
+        // so the join in src/record/join.ts can attach receipt metadata.
+        // Best-effort: a receipt write failure must never affect the
+        // dispatch pipeline (same containment as the span write above).
+        const { writeReceipt } = await import('../receipts/store.js');
+        writeReceipt({
+            action_id: actionId,
+            kind: 'agent_turn',
+            summary: `${kind} turn for ${req.taskRef} attempt ${req.attempt}: ${outcome.success ? 'ok' : 'fail'}`.slice(0, 200),
+            status: outcome.success ? 'ok' : 'fail',
+            agent: req.agentId,
+            duration_ms: outcome.durationMs,
+            cost_usd: t?.costUsd,
+            meta: {
+                taskRef: req.taskRef,
+                attempt: req.attempt,
+                role: kind,
+                model: t?.model,
+                measured: t?.measured,
+                exit: t?.exit,
+            },
         });
     } catch { /* trace recording is best-effort */ }
 }
@@ -453,6 +482,10 @@ export class CompanyDispatch {
         if (!f) return;
         const spec = this.specOf(task.taskRef);
 
+        // Mint a unique action ID before invoking the runner so that even a
+        // thrown (uncaught) worker failure gets a distinct join key — not the
+        // literal "no-action" that would collide across multiple failures.
+        const workerActionId = mintActionId();
         let outcome: TurnOutcome;
         try {
             outcome = await this.runner({
@@ -465,9 +498,19 @@ export class CompanyDispatch {
             outcome = {
                 content: `Task failed: ${err instanceof Error ? err.message : String(err)}`,
                 success: false, toolsUsed: [],
+                telemetry: {
+                    actionId: workerActionId,
+                    promptTokens: 0,
+                    completionTokens: 0,
+                    costUsd: 0,
+                    measured: false,
+                    providerCalls: 1,
+                    returnedCalls: 0,
+                    exit: 'error',
+                },
             };
         }
-        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, outcome.telemetry?.actionId ?? 'no-action', outcome);
+        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, outcome.telemetry?.actionId ?? workerActionId, outcome);
 
         const ownerKeys = loadAgentKeys(f.owner, this.keysDir);
         const result = this.log.append({
