@@ -363,6 +363,25 @@ function ensureGlobalBusBridge(): void {
                     }
                     break;
                 }
+                case 'subtask_phase': {
+                    // v6.1.0-alpha.42 (Bug #4) — goalDriver phase
+                    // transitions now emit on the agent-event bus. Push
+                    // a human-readable activity sticky so the canvas
+                    // updates in real time instead of showing stale state.
+                    const phase = typeof data.phase === 'string' ? data.phase : '';
+                    const note = typeof data.note === 'string' ? data.note : '';
+                    if (!phase) break;
+                    const icon = phaseIcon(phase);
+                    const activity = phaseLabel(phase);
+                    if (icon && activity) {
+                        appendMemberActivity(mission.id, 'driver', {
+                            icon,
+                            activity,
+                            detail: note.slice(0, 100) || undefined,
+                        });
+                    }
+                    break;
+                }
             }
         } catch (err) {
             logger.debug(COMPONENT, `Bridge dispatch threw for ${mission.id}/${ev.type}: ${(err as Error).message}`);
@@ -1166,4 +1185,40 @@ function shortenActivity(s: string | undefined): string | undefined {
     const trimmed = s.trim();
     if (trimmed.length <= 240) return trimmed;
     return trimmed.slice(0, 237).trimEnd() + '…';
+}
+
+/**
+ * v6.1.0-alpha.42 (Bug #4) — Map goalDriver phase transitions to
+ * activity-sticky icons/labels so the canvas updates in real time.
+ */
+function phaseIcon(phase: string): string | null {
+    switch (phase) {
+        case 'planning': return '🧭';
+        case 'delegating': return '📤';
+        case 'observing': return '👀';
+        case 'verifying': return '🔍';
+        case 'iterating': return '🔄';
+        case 'reporting': return '📊';
+        case 'blocked': return '🚫';
+        case 'escalated': return '⚠️';
+        case 'done': return '✅';
+        case 'failed': return '❌';
+        default: return null;
+    }
+}
+
+function phaseLabel(phase: string): string | null {
+    switch (phase) {
+        case 'planning': return 'planning subtasks';
+        case 'delegating': return 'dispatched a specialist';
+        case 'observing': return 'waiting for result';
+        case 'verifying': return 'verifying output';
+        case 'iterating': return 'retrying with fallback';
+        case 'reporting': return 'writing summary';
+        case 'blocked': return 'needs human input';
+        case 'escalated': return 'infrastructure issue';
+        case 'done': return 'subtask completed';
+        case 'failed': return 'subtask failed';
+        default: return null;
+    }
 }

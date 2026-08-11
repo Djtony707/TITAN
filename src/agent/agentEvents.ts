@@ -9,7 +9,7 @@ const bus = new EventEmitter();
 bus.setMaxListeners(50); // Multiple SSE clients + watcher
 
 export interface AgentEvent {
-    type: 'tool_call' | 'tool_end' | 'thinking' | 'round' | 'agent_spawn' | 'agent_done' | 'token';
+    type: 'tool_call' | 'tool_end' | 'thinking' | 'round' | 'agent_spawn' | 'agent_done' | 'token' | 'subtask_phase';
     agentId?: string;
     agentName?: string;
     sessionId?: string;
