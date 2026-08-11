@@ -482,6 +482,10 @@ export class CompanyDispatch {
         if (!f) return;
         const spec = this.specOf(task.taskRef);
 
+        // Mint a unique action ID before invoking the runner so that even a
+        // thrown (uncaught) worker failure gets a distinct join key — not the
+        // literal "no-action" that would collide across multiple failures.
+        const workerActionId = mintActionId();
         let outcome: TurnOutcome;
         try {
             outcome = await this.runner({
@@ -494,9 +498,19 @@ export class CompanyDispatch {
             outcome = {
                 content: `Task failed: ${err instanceof Error ? err.message : String(err)}`,
                 success: false, toolsUsed: [],
+                telemetry: {
+                    actionId: workerActionId,
+                    promptTokens: 0,
+                    completionTokens: 0,
+                    costUsd: 0,
+                    measured: false,
+                    providerCalls: 1,
+                    returnedCalls: 0,
+                    exit: 'error',
+                },
             };
         }
-        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, outcome.telemetry?.actionId ?? 'no-action', outcome);
+        await recordDispatchSpan('worker', { agentId: f.owner, taskRef: task.taskRef, attempt, spec }, outcome.telemetry?.actionId ?? workerActionId, outcome);
 
         const ownerKeys = loadAgentKeys(f.owner, this.keysDir);
         const result = this.log.append({

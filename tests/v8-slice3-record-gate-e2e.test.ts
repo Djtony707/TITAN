@@ -276,6 +276,57 @@ describe('v8 RECORD gate E2E', () => {
         log.close();
     });
 
+    it('T2w-throw: two thrown worker tasks get distinct action IDs and correct receipt attachment', async () => {
+        const { log, keysDir, mk } = scenario();
+        // Runner that throws on every call — simulates uncaught worker failure.
+        const throwingRunner: TurnRunner = async () => {
+            throw new Error('worker exploded');
+        };
+        // Reviewer that returns a failure verdict (won't be reached since
+        // the worker threw, but is required by the dispatch pipeline).
+        const okReviewer: Reviewer = async req => ({
+            verdict: 'needs-work',
+            note: 'fail',
+            telemetry: {
+                actionId: req.actionId,
+                promptTokens: 10, completionTokens: 5, costUsd: 0,
+                measured: true, providerCalls: 1, returnedCalls: 1,
+                exit: 'completed',
+            },
+            durationMs: 50,
+        });
+        const d = mk(throwingRunner, okReviewer, 1); // maxAttempts=1 → no retry
+        delegate(log, keysDir, 'scout', 'throw-task-A');
+        delegate(log, keysDir, 'scout', 'throw-task-B');
+        d.kick();
+        await d.idle();
+
+        const spans = listRecordSpans({});
+        const receipts = readReceipts({});
+        const turns = joinSpansWithReceipts(spans, receipts);
+
+        // Both thrown worker turns should have spans with distinct action IDs.
+        const workerTurns = turns.filter(t => t.role === 'worker' && !t.ok);
+        expect(workerTurns.length).toBeGreaterThanOrEqual(2);
+
+        const workerActionIds = workerTurns.map(t => t.actionId);
+        // No actionId should be the old literal fallback.
+        expect(workerActionIds).not.toContain('no-action');
+        // All action IDs must be unique.
+        expect(new Set(workerActionIds).size).toBe(workerActionIds.length);
+
+        // Every thrown worker turn must have a matching receipt with status=fail.
+        for (const wt of workerTurns) {
+            const matchedReceipt = receipts.find(r => r.action_id === wt.actionId);
+            expect(matchedReceipt).toBeDefined();
+            expect(matchedReceipt!.kind).toBe('agent_turn');
+            expect(matchedReceipt!.status).toBe('fail');
+            expect(wt.receiptKind).toBe('agent_turn');
+            expect(wt.receiptStatus).toBe('fail');
+        }
+        log.close();
+    });
+
     it('T2r: reviewer failure path emits agent_turn receipt with status=fail that joins the span', async () => {
         const { log, keysDir, mk } = scenario();
         const ev = delegate(log, keysDir, 'scout', 'review-fail');
