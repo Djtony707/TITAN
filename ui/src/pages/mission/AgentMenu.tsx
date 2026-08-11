@@ -35,6 +35,7 @@ import {
   setAgentModelOverride,
   setAgentPaused,
   setMissionMode,
+  nudgeMission,
   type MissionMember,
   type MissionRoom,
 } from '@/api/missions';
@@ -87,7 +88,15 @@ export function AgentMenu({
     setBusy(true);
     setError(null);
     try {
-      await postMessage(room.id, `@${member.name} quick check-in — how's it going? Anything I can clear for you?`);
+      // If the mission is blocked or stalled, use the recovery-nudge API
+      // (POST /api/missions/:id/nudge) to force a driver tick. Otherwise
+      // send a friendly chat check-in via the /message endpoint.
+      const needsRecovery = room.status === 'blocked' || member.state === 'blocked';
+      if (needsRecovery) {
+        await nudgeMission(room.id);
+      } else {
+        await postMessage(room.id, `@${member.name} quick check-in — how's it going? Anything I can clear for you?`);
+      }
       onClose();
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
@@ -190,7 +199,7 @@ export function AgentMenu({
               <ActionTile
                 icon="👋"
                 label="Nudge"
-                hint="A friendly check-in"
+                hint={room.status === 'blocked' || member.state === 'blocked' ? 'Force a retry' : 'A friendly check-in'}
                 onClick={nudge}
                 disabled={busy}
               />

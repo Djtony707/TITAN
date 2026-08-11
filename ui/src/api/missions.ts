@@ -162,6 +162,16 @@ export function setMissionStatus(id: string, status: 'paused' | 'working'): Prom
   });
 }
 
+/**
+ * v6.1.0-alpha.42 — Recovery nudge (Bug #5). Forces a driver tick on a
+ * stalled or blocked mission. Distinct from the chat-level nudge in
+ * AgentMenu which sends a @mention message; this endpoint bypasses the
+ * message queue and directly re-runs the goal driver's tick cycle.
+ */
+export function nudgeMission(id: string): Promise<{ ok: boolean; goalId: string; phase: string }> {
+  return json(`/api/missions/${id}/nudge`, { method: 'POST' });
+}
+
 /** v6.1.0-alpha.19 — per-agent model override. Pass `null` to clear. */
 export function setAgentModelOverride(missionId: string, agentId: string, model: string | null): Promise<{ ok: boolean; member: MissionMember }> {
   return json(`/api/missions/${missionId}/agent/${encodeURIComponent(agentId)}/model`, {
