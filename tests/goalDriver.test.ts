@@ -915,49 +915,6 @@ describe('v4.10.0-local root-cause fixes', () => {
         });
     });
 });
-// TEMP TRACE
-describe('__trace', () => {
-    it('logs', async () => {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { readFileSync } = require('fs');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { join } = require('path');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { tmpdir } = require('os');
-        // read any .json in tmpHome/driver-state
-        const dir = join(tmpdir(), 'titan-driver-home-XXXXX', 'driver-state');
-        // We don't know the exact name, find all
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { readdirSync } = require('fs');
-        try {
-            const files = readdirSync('/tmp').filter(f => f.startsWith('titan-driver-home-'));
-            for (const f of files) {
-                const stateDir = join('/tmp', f, 'driver-state');
-                try {
-                    const stateFiles = readdirSync(stateDir);
-                    for (const sf of stateFiles) {
-                        if (sf.includes('15min-override')) {
-                            const content = readFileSync(join(stateDir, sf), 'utf8');
-                            const obj = JSON.parse(content);
-                            // eslint-disable-next-line no-console
-                            console.log('__TRACE_15MIN_OVERRIDE__', JSON.stringify({
-                                phase: obj.phase,
-                                blockedReason: obj.blockedReason,
-                                currentSubtaskId: obj.currentSubtaskId,
-                                subCommitOverride: obj.subtaskStates?.['st-1']?.commitOverride,
-                                subLastError: obj.subtaskStates?.['st-1']?.lastError,
-                                subAttempts: obj.subtaskStates?.['st-1']?.attempts,
-                                history: obj.history,
-                            }));
-                        }
-                    }
-                } catch { /* ok */ }
-            }
-        } catch { /* ok */ }
-        expect(true).toBe(true);
-    });
-});
-
 afterAll(() => {
     try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ok */ }
 });
