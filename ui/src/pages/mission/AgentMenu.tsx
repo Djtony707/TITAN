@@ -88,11 +88,14 @@ export function AgentMenu({
   async function nudge() {
     setBusy(true);
     setError(null);
-    await performNudge(room, member, { nudgeMission, postMessage }, {
-      onClose,
-      onError: (msg) => setError(msg),
-    });
-    setBusy(false);
+    try {
+      await performNudge(room, member, { nudgeMission, postMessage }, {
+        onClose,
+        onError: (msg) => setError(msg),
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function sendCompose(prefix: string) {
