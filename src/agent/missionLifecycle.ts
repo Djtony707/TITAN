@@ -33,6 +33,7 @@ import {
     raiseQuestion,
     recordCost,
     ensureMember,
+    ensureSystemMember,
     getMission,
     getMissionByGoalId,
     listMissions,
@@ -201,11 +202,12 @@ function ensureGlobalBusBridge(): void {
                 const icon = phaseIcon(phase);
                 const activity = phaseLabel(phase);
                 if (icon && activity) {
-                    // Ensure a 'driver' system member exists so the activity
-                    // sticky has a home on the team. Without this, the
-                    // appendMemberActivity call is a no-op because the
-                    // member lookup fails.
-                    ensureMember(mission.id, 'driver');
+                    // Ensure a 'driver' hidden system member exists so the
+                    // activity sticky has a home on the team. Unlike
+                    // ensureMember, ensureSystemMember does NOT post a
+                    // "joined the team" chat message, emit team_formed,
+                    // or appear as a visible agent desk item on the canvas.
+                    ensureSystemMember(mission.id, 'driver');
                     appendMemberActivity(mission.id, 'driver', {
                         icon,
                         activity,

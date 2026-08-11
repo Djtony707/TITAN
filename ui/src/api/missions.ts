@@ -29,6 +29,10 @@ export interface MissionMember {
    *  "read a page", "wrote a file"). The desk renders these as live
    *  sticky notes near the agent that produced them. */
   activityLog?: Array<{ at: string; icon: string; activity: string; detail?: string }>;
+  /** v6.1.0-alpha.42 (Bug #4) — hidden system members (e.g. goal driver)
+   *  are filtered from agent desk items, team count, and team-active
+   *  checks but still feed activity stickies. */
+  hidden?: boolean;
 }
 
 export type MissionMessage =

@@ -346,4 +346,38 @@ describe('Bug #4 — subtask_phase → mission room activity log (integration)',
         expect(driverB).toBeTruthy();
         expect(driverB!.activityLog!.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('driver member is hidden — no visible team expansion, no "joined" message', async () => {
+        const mission = createMission({
+            goal: 'Bug #4 hidden driver test',
+            members: [{ agentId: 'writer', name: 'Writer' }],
+        });
+        const visibleTeamSizeBefore = mission.team.length;
+
+        const goalId = await startMissionWork(mission);
+        expect(goalId).toBeTruthy();
+
+        // Drive a tick to trigger subtask_phase → ensureSystemMember
+        await tickDriver(goalId!);
+
+        const updated = getMission(mission.id);
+        expect(updated).toBeTruthy();
+
+        // The driver member should exist and be hidden
+        const driverMember = updated!.team.find(m => m.agentId === 'driver');
+        expect(driverMember).toBeTruthy();
+        expect(driverMember!.hidden).toBe(true);
+
+        // Visible team size should NOT include the hidden driver
+        const visibleTeam = updated!.team.filter(m => !m.hidden);
+        expect(visibleTeam.length).toBe(visibleTeamSizeBefore);
+
+        // No "Driver joined the team." system message should exist
+        const joinedMessages = updated!.messages.filter(
+            m => m.kind === 'system' && m.tag === 'team_expanded' &&
+                  typeof (m as { content?: string }).content === 'string' &&
+                  ((m as { content: string }).content.includes('Driver joined the team')),
+        );
+        expect(joinedMessages).toHaveLength(0);
+    });
 });

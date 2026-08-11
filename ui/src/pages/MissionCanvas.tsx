@@ -342,7 +342,7 @@ export default function MissionCanvas() {
     // sticky count is the same as before but each one can represent
     // many underlying actions.
     return rollupActivityStickies(
-      room.team.map(m => ({
+      room.team.filter(m => !m.hidden).map(m => ({
         agentId: m.agentId,
         name: m.name,
         color: m.color,
@@ -381,6 +381,7 @@ export default function MissionCanvas() {
     out.push({ id: 'cabinet', kind: 'cabinet' });
     out.push({ id: 'trash', kind: 'trash' });
     for (const m of room.team) {
+      if (m.hidden) continue; // skip hidden system members (Bug #4)
       out.push({ id: `agent:${m.agentId}`, kind: 'agent', ref: m.agentId });
     }
     for (const f of fileSources) {
@@ -1117,12 +1118,13 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
 
   // If the team is active and the document recently grew, show a
   // live-writing indicator with a blinking cursor.
-  const teamActive = room.team.some(t => t.state === 'working' || t.state === 'editing');
+  const teamActive = room.team.some(t => !t.hidden && (t.state === 'working' || t.state === 'editing'));
 
   // Phase 1 polish — show a polished SVG chart skeleton when an
   // Analyst is computing (heuristic: any team member named "Analyst"
   // or with role containing "analyst" is in working/editing state).
   const analystComputing = teamActive && room.team.some(t =>
+    !t.hidden &&
     (t.state === 'working' || t.state === 'editing') &&
     (t.name.toLowerCase().includes('analyst') || (t.role ?? '').toLowerCase().includes('analyst'))
   );
@@ -1347,7 +1349,7 @@ function DeskClock({ room }: { room: MissionRoom }) {
       >
         <ClockStat n={working} label="working" tone="accent" />
         <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
-        <ClockStat n={room.team.length} label="on team" tone="muted" />
+        <ClockStat n={room.team.filter(m => !m.hidden).length} label="on team" tone="muted" />
       </div>
     </div>
   );
@@ -2451,6 +2453,7 @@ const DUST_MOTES: Array<{ left: number; size: number; duration: number; delay: n
 function countTeam(room: MissionRoom) {
   let working = 0, blocked = 0;
   for (const m of room.team) {
+    if (m.hidden) continue; // skip hidden system members (Bug #4)
     if (m.state === 'working' || m.state === 'editing') working++;
     if (m.state === 'blocked') blocked++;
   }

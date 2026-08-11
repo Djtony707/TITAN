@@ -87,6 +87,13 @@ export interface MissionMember {
      * mission JSON file stays bounded.
      */
     activityLog?: Array<{ at: string; icon: string; activity: string; detail?: string }>;
+    /**
+     * v6.1.0-alpha.42 (Bug #4) — hidden members are system-level actors
+     * (e.g. the goal driver) that feed activity stickies to the canvas
+     * but do NOT appear as agent desk items, team-count stats, or
+     * "joined the team" chat messages. Set by ensureSystemMember().
+     */
+    hidden?: boolean;
 }
 
 /** One row in the chat thread. */
@@ -500,6 +507,35 @@ export function ensureMember(missionId: string, agentId: string, name?: string):
     } as SystemMessage);
     commit(room);
     emit('team_formed', missionId, { team: room.team.map(t => t.agentId), added: agentId });
+    return room;
+}
+
+/**
+ * v6.1.0-alpha.42 (Bug #4) — Add a hidden system member (e.g. the goal
+ * driver) to the team WITHOUT the visible side effects of ensureMember:
+ * no "joined the team" chat message, no team_formed emit. The member's
+ * activityLog still feeds canvas activity stickies, but the member is
+ * filtered out of agent desk items, team-count stats, and team-active
+ * checks via the `hidden` flag on MissionMember.
+ *
+ * Idempotent: if a member with the same agentId already exists (hidden
+ * or not), returns the room unchanged.
+ */
+export function ensureSystemMember(missionId: string, agentId: string, name?: string): MissionRoom | null {
+    const room = getOrLoad(missionId);
+    if (!room) return null;
+    if (room.team.some(m => m.agentId === agentId)) return room;
+    const meta = memberMetaFor(agentId);
+    const displayName = name ?? agentId.charAt(0).toUpperCase() + agentId.slice(1);
+    room.team.push({
+        agentId,
+        name: displayName,
+        role: meta.role,
+        color: meta.color,
+        state: 'idle',
+        hidden: true,
+    });
+    commit(room);
     return room;
 }
 
