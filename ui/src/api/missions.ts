@@ -172,6 +172,25 @@ export function nudgeMission(id: string): Promise<{ ok: boolean; goalId: string;
   return json(`/api/missions/${id}/nudge`, { method: 'POST' });
 }
 
+/**
+ * v6.1.0-alpha.42 — Recovery-nudge policy (Bug #5). Pure decision helper
+ * extracted from AgentMenu so the choice between the recovery-nudge API
+ * and the chat-level check-in can be tested without React/jsdom.
+ *
+ *   - Returns true  → call `nudgeMission(id)` (driver-tick recovery)
+ *   - Returns false → call `postMessage(id, "@agent quick check-in…")` (chat nudge)
+ *
+ * Triggers when EITHER the room is in a blocked state OR the specific
+ * member being nudged is blocked. Both signals mean the goal driver is
+ * stalled waiting for input, and a chat nudge would just be noise.
+ */
+export function shouldUseRecoveryNudge(
+  room: { status: string },
+  member: { state: string }
+): boolean {
+  return room.status === 'blocked' || member.state === 'blocked';
+}
+
 /** v6.1.0-alpha.19 — per-agent model override. Pass `null` to clear. */
 export function setAgentModelOverride(missionId: string, agentId: string, model: string | null): Promise<{ ok: boolean; member: MissionMember }> {
   return json(`/api/missions/${missionId}/agent/${encodeURIComponent(agentId)}/model`, {

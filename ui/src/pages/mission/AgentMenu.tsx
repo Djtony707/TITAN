@@ -36,6 +36,7 @@ import {
   setAgentPaused,
   setMissionMode,
   nudgeMission,
+  shouldUseRecoveryNudge,
   type MissionMember,
   type MissionRoom,
 } from '@/api/missions';
@@ -90,9 +91,10 @@ export function AgentMenu({
     try {
       // If the mission is blocked or stalled, use the recovery-nudge API
       // (POST /api/missions/:id/nudge) to force a driver tick. Otherwise
-      // send a friendly chat check-in via the /message endpoint.
-      const needsRecovery = room.status === 'blocked' || member.state === 'blocked';
-      if (needsRecovery) {
+      // send a friendly chat check-in via the /message endpoint. The
+      // decision is extracted to `shouldUseRecoveryNudge` so it can be
+      // unit-tested without React/jsdom.
+      if (shouldUseRecoveryNudge(room, member)) {
         await nudgeMission(room.id);
       } else {
         await postMessage(room.id, `@${member.name} quick check-in — how's it going? Anything I can clear for you?`);
