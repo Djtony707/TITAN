@@ -2341,6 +2341,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     onMissionCreated: (mission) => startMissionWork(mission),
     onUserMessage: (id, content) => missionHandleUserMessage(id, content),
     onStatusChange: (id, status) => missionHandleStatusChange(id, status),
+    onNudge: async (missionId) => {
+        const { getMission } = await import('../agent/missionRoom.js');
+        const room = getMission(missionId);
+        if (!room?.goalId) return null;
+        const { tickDriver } = await import('../agent/goalDriver.js');
+        const phase = await tickDriver(room.goalId);
+        return phase;
+    },
   }));
   app.use('/api/telephony', createTelephonyRouter());
   // v6.1.0-alpha.25 — on every server boot, re-attach the per-mission

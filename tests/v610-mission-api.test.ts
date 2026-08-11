@@ -263,6 +263,99 @@ describe('v6.1.0 — missions REST', () => {
         } finally { close(); }
     });
 
+    it('POST /api/missions/:id/nudge forces a driver tick via the adapter', async () => {
+        let nudgeCalled = false;
+        let nudgeMissionId = '';
+        const app = await buildApp({
+            onNudge: (missionId) => {
+                nudgeCalled = true;
+                nudgeMissionId = missionId;
+                return 'iterating';
+            },
+        });
+        const { url, close } = await listen(app);
+        try {
+            const create = await fetch(`${url}/api/missions`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ goal: 'Nudge test.' }),
+            });
+            const { mission } = await create.json() as { mission: { id: string; goalId: string } };
+            // Mission was created with goalId='goal-stub-123' from the adapter
+            const r = await fetch(`${url}/api/missions/${mission.id}/nudge`, { method: 'POST' });
+            expect(r.status).toBe(200);
+            const body = await r.json() as { ok: boolean; goalId: string; phase: string };
+            expect(body.ok).toBe(true);
+            expect(body.goalId).toBe('goal-stub-123');
+            expect(body.phase).toBe('iterating');
+            expect(nudgeCalled).toBe(true);
+            expect(nudgeMissionId).toBe(mission.id);
+        } finally { close(); }
+    });
+
+    it('POST /api/missions/:id/nudge returns 501 when adapter has no onNudge', async () => {
+        const app = await buildApp(); // NOOP_ADAPTER has no onNudge
+        const { url, close } = await listen(app);
+        try {
+            const create = await fetch(`${url}/api/missions`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ goal: 'No nudge adapter.' }),
+            });
+            const { mission } = await create.json() as { mission: { id: string; goalId: string } };
+            const r = await fetch(`${url}/api/missions/${mission.id}/nudge`, { method: 'POST' });
+            expect(r.status).toBe(501);
+            const body = await r.json() as { error: string };
+            expect(body.error).toBe('nudge_not_supported');
+        } finally { close(); }
+    });
+
+    it('POST /api/missions/:id/nudge returns 404 for unknown mission', async () => {
+        const app = await buildApp({ onNudge: () => 'iterating' });
+        const { url, close } = await listen(app);
+        try {
+            const r = await fetch(`${url}/api/missions/nonexistent/nudge`, { method: 'POST' });
+            expect(r.status).toBe(404);
+        } finally { close(); }
+    });
+
+    it('POST /api/missions/:id/nudge returns 409 when mission has no linked goal', async () => {
+        // Create a mission with an adapter that returns null (no goalId link)
+        const app = await buildApp({
+            onMissionCreated: () => null, // no goalId linked
+            onNudge: () => 'iterating',
+        });
+        const { url, close } = await listen(app);
+        try {
+            const create = await fetch(`${url}/api/missions`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ goal: 'No linked goal.' }),
+            });
+            const { mission } = await create.json() as { mission: { id: string; goalId?: string } };
+            expect(mission.goalId).toBeUndefined();
+            const r = await fetch(`${url}/api/missions/${mission.id}/nudge`, { method: 'POST' });
+            expect(r.status).toBe(409);
+            const body = await r.json() as { error: string };
+            expect(body.error).toBe('no_linked_goal');
+        } finally { close(); }
+    });
+
+    it('POST /api/missions/:id/nudge returns 500 when adapter throws', async () => {
+        const app = await buildApp({
+            onNudge: () => { throw new Error('driver explosion'); },
+        });
+        const { url, close } = await listen(app);
+        try {
+            const create = await fetch(`${url}/api/missions`, {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ goal: 'Adapter throws.' }),
+            });
+            const { mission } = await create.json() as { mission: { id: string; goalId: string } };
+            const r = await fetch(`${url}/api/missions/${mission.id}/nudge`, { method: 'POST' });
+            expect(r.status).toBe(500);
+            const body = await r.json() as { error: string };
+            expect(body.error).toBe('nudge_failed');
+        } finally { close(); }
+    });
+
     it('DELETE /api/missions/:id removes the mission', async () => {
         const app = await buildApp();
         const { url, close } = await listen(app);
