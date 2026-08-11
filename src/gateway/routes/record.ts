@@ -61,44 +61,85 @@ export function createRecordRouter(): Router {
   const DEFAULT_LIMIT = 100;
 
   // ── GET /tasks — per-task token/cost summary ─────────────────────
-  router.get('/tasks', async (_req, res) => {
+  router.get('/tasks', async (req, res) => {
     try {
       const { listRecordSpans } = await import('../../telemetry/traceStore.js');
       const { readReceipts } = await import('../../receipts/store.js');
       const { joinSpansWithReceipts, groupTurnsByTask, recordSummary } = await import('../../record/join.js');
 
-      const spans = listRecordSpans({ limit: MAX_LIMIT });
-      const receipts = readReceipts({ limit: MAX_LIMIT });
-      const turns = joinSpansWithReceipts(spans, receipts);
+      // Read once without limit to get totals, then apply the window.
+      const allSpans = listRecordSpans();
+      const allReceipts = readReceipts({ limit: Number.MAX_SAFE_INTEGER });
+      const totalSpanCount = allSpans.length;
+      const totalReceiptCount = allReceipts.length;
+
+      // Apply pagination (offset + limit) to the joined turns.
+      const offsetRaw = req.query.offset;
+      const limitRaw = req.query.limit;
+      const effectiveOffset = offsetRaw ? Math.max(parseInt(offsetRaw as string, 10) || 0, 0) : 0;
+      const effectiveLimit = limitRaw
+        ? Math.min(Math.max(parseInt(limitRaw as string, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT)
+        : DEFAULT_LIMIT;
+
+      const turns = joinSpansWithReceipts(allSpans, allReceipts);
       const tasks = groupTurnsByTask(turns);
+      const windowedTasks = tasks.slice(effectiveOffset, effectiveOffset + effectiveLimit);
       const summary = recordSummary(turns);
 
-      res.json({ summary, tasks });
+      res.json({
+        summary,
+        tasks: windowedTasks,
+        window: {
+          limit: effectiveLimit,
+          offset: effectiveOffset,
+          totalSpans: totalSpanCount,
+          totalReceipts: totalReceiptCount,
+          totalTasks: tasks.length,
+        },
+      });
     } catch (e) {
       logger.error(COMPONENT, `Tasks error: ${(e as Error).message}`);
       res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
 
-  // ── GET /turns — per-turn drill-down (?taskRef=&limit=) ──────────
+  // ── GET /turns — per-turn drill-down (?taskRef=&limit=&offset=) ─
   router.get('/turns', async (req, res) => {
     try {
       const { listRecordSpans } = await import('../../telemetry/traceStore.js');
       const { readReceipts } = await import('../../receipts/store.js');
       const { joinSpansWithReceipts } = await import('../../record/join.js');
 
-      const taskRef = typeof req.query.taskRef === 'string' ? req.query.taskRef : undefined;
-      const limitRaw = req.query.limit;
-      const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw as string, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT) : DEFAULT_LIMIT;
+      // Read once without limit to get totals.
+      const allSpans = listRecordSpans();
+      const allReceipts = readReceipts({ limit: Number.MAX_SAFE_INTEGER });
+      const totalSpanCount = allSpans.length;
+      const totalReceiptCount = allReceipts.length;
 
-      const spans = listRecordSpans({ limit: MAX_LIMIT });
-      const receipts = readReceipts({ limit: MAX_LIMIT });
-      const turns = joinSpansWithReceipts(spans, receipts);
+      const taskRef = typeof req.query.taskRef === 'string' ? req.query.taskRef : undefined;
+      const offsetRaw = req.query.offset;
+      const limitRaw = req.query.limit;
+      const effectiveOffset = offsetRaw ? Math.max(parseInt(offsetRaw as string, 10) || 0, 0) : 0;
+      const effectiveLimit = limitRaw
+        ? Math.min(Math.max(parseInt(limitRaw as string, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT)
+        : DEFAULT_LIMIT;
+
+      const turns = joinSpansWithReceipts(allSpans, allReceipts);
 
       const filtered = taskRef ? turns.filter(t => t.taskRef === taskRef) : turns;
-      const limited = filtered.slice(0, limit);
+      const limited = filtered.slice(effectiveOffset, effectiveOffset + effectiveLimit);
 
-      res.json({ turns: limited, count: limited.length, total: filtered.length });
+      res.json({
+        turns: limited,
+        count: limited.length,
+        total: filtered.length,
+        window: {
+          limit: effectiveLimit,
+          offset: effectiveOffset,
+          totalSpans: totalSpanCount,
+          totalReceipts: totalReceiptCount,
+        },
+      });
     } catch (e) {
       logger.error(COMPONENT, `Turns error: ${(e as Error).message}`);
       res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
