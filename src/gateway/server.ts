@@ -1343,8 +1343,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Legacy dashboard (kept during migration, also fallback if React UI not built)
   app.get('/legacy', (_req, res) => {
+    const cfg = loadConfig();
+    const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
     res.setHeader('Content-Type', 'text/html');
-    res.send(getMissionControlHTML());
+    res.send(getMissionControlHTML(v8Enabled));
   });
 
   // Root route: React SPA or legacy dashboard
@@ -1355,8 +1357,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Expires', '0');
       res.send(cachedIndexHtml);
     } else {
+      const cfg = loadConfig();
+      const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
       res.setHeader('Content-Type', 'text/html');
-      res.send(getMissionControlHTML());
+      res.send(getMissionControlHTML(v8Enabled));
     }
   });
 

@@ -333,7 +333,7 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
         }
 
         // ── Goal-based mode: pick next subtask from active goals ──
-        const autopilotMode = (config.autopilot as Record<string, unknown>).mode as string || 'checklist';
+        const autopilotMode = config.autopilot.mode;
         if (autopilotMode === 'goals') {
             return await runGoalBasedAutopilot(config, startTime, dryRun);
         }
@@ -346,6 +346,56 @@ export async function runAutopilotNow(options: AutopilotRunOptions = {}): Promis
         // ── Autoresearch mode: run model fine-tuning experiments ──
         if (autopilotMode === 'autoresearch') {
             return await runAutoresearchAutopilot(config, startTime, dryRun);
+        }
+
+        // ── Recognize mode: nightly task-pattern clustering (v8 Slice 4) ──
+        if (autopilotMode === 'recognize') {
+            // Master-flag gate: recognize mode is part of the self-compiling
+            // pipeline. With selfCompiling.enabled=false TITAN must stay
+            // v7 byte-identical — the scheduler skips instead of clustering.
+            if (!config.selfCompiling?.enabled) {
+                logger.info(COMPONENT, 'RECOGNIZE skipped: selfCompiling.enabled=false');
+                const run: AutopilotRun = {
+                    timestamp: new Date().toISOString(),
+                    duration: 0,
+                    tokensUsed: 0,
+                    cost: 0,
+                    classification: 'ok',
+                    summary: 'Skipped: self-compiling disabled (master flag off)',
+                    toolsUsed: [],
+                    skipped: true,
+                    skipReason: 'self_compiling_disabled',
+                };
+                lastRun = run;
+                appendRun(run);
+                return { run, delivered: false };
+            }
+            return await runRecognizeAutopilot(config, startTime, dryRun);
+        }
+
+        // ── Compile mode: compile qualifying clusters into recipes (v8 Slice 5) ──
+        if (autopilotMode === 'compile') {
+            // Master-flag gate: compile mode is part of the self-compiling
+            // pipeline. With selfCompiling.enabled=false TITAN must stay
+            // v7 byte-identical — the scheduler skips instead of compiling.
+            if (!config.selfCompiling?.enabled) {
+                logger.info(COMPONENT, 'COMPILE skipped: selfCompiling.enabled=false');
+                const run: AutopilotRun = {
+                    timestamp: new Date().toISOString(),
+                    duration: 0,
+                    tokensUsed: 0,
+                    cost: 0,
+                    classification: 'ok',
+                    summary: 'Skipped: self-compiling disabled (master flag off)',
+                    toolsUsed: [],
+                    skipped: true,
+                    skipReason: 'self_compiling_disabled',
+                };
+                lastRun = run;
+                appendRun(run);
+                return { run, delivered: false };
+            }
+            return await runCompileAutopilot(config, startTime, dryRun);
         }
 
         // Get previous run summary for context
@@ -822,6 +872,153 @@ async function deliverResult(config: TitanConfig, run: AutopilotRun): Promise<bo
 }
 
 // ─── Init / Stop ────────────────────────────────────────────────
+
+// ─── Recognize autopilot (v8 Slice 4) ──────────────────────────────
+
+async function runRecognizeAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
+    logger.info(COMPONENT, 'RECOGNIZE autopilot: running nightly task-pattern clustering');
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: 'Dry-run: would run RECOGNIZE clustering on recent task trajectories.',
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
+
+    try {
+        const { runNightlyClustering } = await import('./recognizeCluster.js');
+        const result = runNightlyClustering();
+
+        const duration = Date.now() - startTime;
+        const summary = [
+            `RECOGNIZE: ${result.clusters.length} clusters from ${result.trajectoryCount} trajectories`,
+            result.newClusters.length > 0
+                ? `${result.newClusters.length} new clusters: ${result.newClusters.map(c => c.signature.intent).join(', ')}`
+                : 'No new clusters',
+            result.clusters.length > 0
+                ? `Top: ${result.clusters[0].signature.intent} (score ${result.clusters[0].score}, ${result.clusters[0].frequency}x)`
+                : '',
+        ].filter(Boolean).join('\n');
+
+        const classification = result.newClusters.length > 0 ? 'notable' : 'ok';
+
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification,
+            summary: summary.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+
+        let delivered = false;
+        if (classification !== 'ok') {
+            delivered = await deliverResult(config, run);
+        }
+
+        logger.info(COMPONENT, `RECOGNIZE autopilot complete: ${classification} (${duration}ms)`);
+        return { run, delivered };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'urgent',
+            summary: `RECOGNIZE error: ${(error as Error).message}`,
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        return { run, delivered: false };
+    }
+}
+
+// ─── Compile autopilot (v8 Slice 5) ───────────────────────────────
+
+async function runCompileAutopilot(config: TitanConfig, startTime: number, dryRun: boolean): Promise<AutopilotResult> {
+    logger.info(COMPONENT, 'COMPILE autopilot: running compile pipeline (cluster → recipe → shadow)');
+
+    if (dryRun) {
+        const duration = Date.now() - startTime;
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'ok',
+            summary: 'Dry-run: would compile qualifying clusters into candidate recipes and promote to shadow.',
+            toolsUsed: [],
+            skipped: true,
+            skipReason: 'dry_run',
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
+
+    try {
+        const { runCompilePipeline } = await import('./compilePipeline.js');
+        const result = runCompilePipeline(config);
+        const duration = Date.now() - startTime;
+
+        const summary = [
+            `COMPILE: ${result.recipesCompiled} recipes compiled, ${result.recipesPromotedToShadow} promoted to shadow`,
+            `${result.skipped} skipped (${result.clustersExamined} clusters examined)`,
+        ].filter(Boolean).join(' — ');
+
+        const classification = result.recipesCompiled > 0 ? 'notable' : 'ok';
+
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification,
+            summary: summary.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+
+        return { run, delivered: false };
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        logger.error(COMPONENT, `COMPILE autopilot error: ${(error as Error).message}`);
+        const run: AutopilotRun = {
+            timestamp: new Date().toISOString(),
+            duration,
+            tokensUsed: 0,
+            cost: 0,
+            classification: 'urgent',
+            summary: `COMPILE error: ${(error as Error).message}`.slice(0, 500),
+            toolsUsed: [],
+        };
+        lastRun = run;
+        appendRun(run);
+        pruneHistory(config.autopilot.maxRunHistory);
+        return { run, delivered: false };
+    }
+}
 
 export function initAutopilot(config: TitanConfig): void {
     if (!config.autopilot.enabled) {

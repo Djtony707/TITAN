@@ -33,7 +33,7 @@ interface S { log: CompanyLog; user: AgentKeys; ceo: AgentKeys; scout: AgentKeys
 function scenario(): S {
     caseId += 1;
     const dir = join(ROOT, `case-${caseId}`);
-    const keysDir = join(dir, 'keys');
+    const keysDir = join(dir, 'company', 'keys');
     const user = mintAgentKeys('user', keysDir);
     const ceo = mintAgentKeys('ceo', keysDir);
     const scout = mintAgentKeys('scout', keysDir);

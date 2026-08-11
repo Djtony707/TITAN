@@ -172,6 +172,9 @@ export interface ToolResult {
     approvalPending?: boolean;
     /** v5.0: Approval request ID when approvalPending is true */
     approvalRequestId?: string;
+    /** Receipt action_id minted for this execution — lets the tracer join
+     *  this call to its receipt (v8 TraceStore). */
+    actionId?: string;
 }
 
 /** A registered tool handler */
@@ -301,6 +304,7 @@ export async function executeTool(toolCall: ToolCall, channel?: string): Promise
     emitToolCall({ tool: toolCall.function.name, argsPreview: argInfo.summary, actionId: _aid });
     try {
         const result = await executeToolInner(toolCall, channel);
+        result.actionId = _aid;
         writeToolCallReceipt({
             actionId: _aid,
             toolName: toolCall.function.name,

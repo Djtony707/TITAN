@@ -15,6 +15,7 @@
  */
 import { chat, chatStream } from '../providers/router.js';
 import { executeTools, type ToolResult } from './toolRunner.js';
+import { shouldRoute, shouldPromote } from './v8Gates.js';
 import { runWithSession } from '../watch/sessionContext.js';
 import { drainPendingResults, getAgentInbox, claimWakeupRequest } from './agentWakeup.js';
 import { setCurrentSessionId } from './agent.js';
@@ -458,6 +459,8 @@ export interface LoopResult {
         args: Record<string, unknown>;
         resultSnippet: string;
         success: boolean;
+        /** Receipt action_id for this call (v8 TraceStore join key) */
+        actionId?: string;
     }>;
 }
 
@@ -732,7 +735,111 @@ function detectResponseGap(userMessage: string, response: string, messages: Chat
     return null;
 }
 
-// ── Main Loop ──────────────────────────���───────────────────────────���─
+// ── v8 ROUTE: compiled-recipe router gate (testable wrapper) ────────────
+// Decides replay | confirm-required | miss BEFORE any LLM call — the
+// same short-circuit pattern as responseCache, one level up. Only
+// 'replay' short-circuits the loop here; 'confirm-required' falls
+// through to the frontier path until the bound-approval executor lands
+// (safe: falling through is today's behavior for every message).
+// Gated behind config.selfCompiling.route (default off): flag-off is
+// byte-identical to v7 — no registry read, no signature compute, no log line.
+// With an empty registry this is a cheap constant-time miss.
+//
+// Extracted as an exported wrapper so the gate-spy test can import THIS
+// function and prove the production call site honors shouldRoute(). If the
+// `if` gate below is deleted, the seam fires unconditionally and the test
+// (which passes a flag-off ctx and asserts no registry/signature activity)
+// fails — the wiring proof Honey requires.
+//
+// Returns the finalized LoopResult when replay short-circuits the loop
+// (zero frontier tokens), or undefined to fall through to the frontier path.
+export async function runV8RouterGate(
+    ctx: LoopContext,
+    result: LoopResult,
+): Promise<LoopResult | undefined> {
+    if (shouldRoute(ctx.config) && ctx.message && !ctx.voiceFastPath) {
+        try {
+            // Keep the promotion stack out of the v7 module graph while the
+            // route gate is disabled. Loading it here also avoids registry I/O.
+            const [registry, router] = await Promise.all([
+                import('./recipeRegistry.js'),
+                import('./routerMiddleware.js'),
+            ]);
+            const { getActiveRecipes, recordInvocation } = registry;
+            const { routeCompiled, escalateOnFailure, renderReplayResult } = router;
+            const routeDecision = routeCompiled({ message: ctx.message, activeRecipes: getActiveRecipes() });
+            if (routeDecision.kind === 'replay') {
+                // Security fix 2 (MISSION.md): default-deny replay safety check
+                // BEFORE executeTools(). The router already validated each step
+                // via isReplaySafeStep, but this is the execution-side enforcement
+                // — a defense-in-depth gate that independently verifies every
+                // step's tool is declared in TOOL_KINDS before any tool call
+                // leaves the process. If a recipe was corrupted between the
+                // router decision and execution (e.g. registry tampering, race
+                // condition), this gate catches it at the boundary.
+                const { TOOL_KINDS } = await import('./toolIntent.js');
+                const undeclared = routeDecision.resolvedSteps.find(s => !(s.tool in TOOL_KINDS));
+                if (undeclared) {
+                    logger.warn(COMPONENT, `[v8 Router] Default-deny: step tool "${undeclared.tool}" not declared in TOOL_KINDS — escalating to frontier`);
+                    return undefined; // fall through to frontier path
+                }
+
+                // Security fix 3 (MISSION.md): enforce ResolvedStep.awaitConfirm.
+                // The router sets awaitConfirm=true on steps compiled from
+                // risky/destructive tools. A 'replay' decision means the router
+                // classified ALL steps as replay-safe sync — so awaitConfirm
+                // should be false on every step here. But if a recipe was
+                // corrupted or a gate was bypassed, this enforcement prevents
+                // a confirmed step from auto-replaying without human approval.
+                const needsConfirm = routeDecision.resolvedSteps.find(s => s.awaitConfirm);
+                if (needsConfirm) {
+                    logger.warn(COMPONENT, `[v8 Router] Default-deny: step tool "${needsConfirm.tool}" has awaitConfirm=true — cannot auto-replay, escalating to frontier`);
+                    return undefined; // fall through to frontier path
+                }
+
+                const replayCalls: ToolCall[] = routeDecision.resolvedSteps.map((s, i) => ({
+                    id: `replay-${ctx.sessionId}-${i}`,
+                    type: 'function' as const,
+                    function: { name: s.tool, arguments: JSON.stringify(s.args) },
+                }));
+                logger.info(COMPONENT, `[v8 Router] Replay: recipe ${routeDecision.recipe.id} — ${replayCalls.length} step(s), zero frontier calls`);
+                const replayResults = await runWithSession(
+                    { sessionId: ctx.sessionId, agentId: ctx.agentId },
+                    () => executeTools(replayCalls, ctx.channel),
+                );
+                const failedAt = replayResults.findIndex(r => !r.success);
+                if (failedAt === -1) {
+                    recordInvocation(routeDecision.recipe.id, true);
+                    result.content = renderReplayResult(routeDecision.recipe, replayResults);
+                    result.toolsUsed = replayResults.map(r => r.name);
+                    result.attemptedTools = [...result.toolsUsed];
+                    result.orderedToolSequence = [...result.toolsUsed];
+                    result.toolCallDetails = replayResults.map((r, i) => ({
+                        name: r.name,
+                        args: routeDecision.resolvedSteps[i]!.args,
+                        resultSnippet: r.content.slice(0, 500),
+                        success: r.success,
+                        ...(r.actionId ? { actionId: r.actionId } : {}),
+                    }));
+                    return result; // zero frontier tokens — promptTokens/completionTokens stay 0
+                }
+                // Failed cheap run: mint the failure, auto-demote the recipe,
+                // escalate one rung — the frontier path below answers instead.
+                recordInvocation(routeDecision.recipe.id, false);
+                logger.warn(COMPONENT, `[v8 Router] ${escalateOnFailure(routeDecision, failedAt).reason}`);
+            } else if (routeDecision.kind === 'confirm-required') {
+                logger.info(COMPONENT, `[v8 Router] ConfirmRequired: ${routeDecision.reason} — frontier path this turn`);
+            }
+        } catch (err) {
+            // The router must never break the agent loop — any middleware
+            // failure degrades to today's frontier behavior.
+            logger.warn(COMPONENT, `[v8 Router] middleware error, falling through: ${(err as Error).message}`);
+        }
+    }
+    return undefined;
+}
+
+// ── Main Loop ──────────────────────────────────────────────────────
 
 export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     const result: LoopResult = {
@@ -851,6 +958,16 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
     // ── Process any pending inbox work before this round ──
     if (cpEnabled && ctx.agentId && round === 0) {
         await checkAndProcessInbox(ctx.agentId);
+    }
+
+    // ── v8 ROUTE: compiled-recipe router middleware (slot 6 step 3) ─────
+    // The gate + seam live in runV8RouterGate (testable wrapper) so the
+    // gate-spy test can prove the production call site honors shouldRoute().
+    // Returns the finalized result when replay short-circuits (zero frontier
+    // tokens); undefined falls through to the frontier path below.
+    {
+        const replayed = await runV8RouterGate(ctx, result);
+        if (replayed) return replayed;
     }
 
     while (phase !== 'done' && round < ctx.effectiveMaxRounds) {
@@ -1731,6 +1848,19 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                 );
             }
 
+            // ── v8 Shadow Executor (Honey blocker 2 fix) ──────────
+            // Fire-and-forget: run shadow-state recipes alongside the
+            // frontier model's tool results. Best-effort — failures are
+            // logged and swallowed; the user always gets the frontier
+            // response regardless of shadow outcome.
+            if (shouldPromote(ctx.config) && ctx.message) {
+                const frontierOutput = toolResults.map(r => ({ name: r.name, content: r.content }));
+                // Don't await — shadow execution must never delay the user.
+                import('./shadowExecutor.js').then(({ runShadowComparisons }) =>
+                    runShadowComparisons(ctx.message!, frontierOutput, ctx.config),
+                ).catch(() => { /* shadow executor must never break the loop */ });
+            }
+
             // v5.0: Approval-gate pause — if any tool is awaiting human approval,
             // exit the loop immediately so the user sees the approval request.
             const pendingApproval = toolResults.find(r => r.approvalPending);
@@ -1866,6 +1996,7 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
                     args: tcArgs,
                     resultSnippet: tr.content.slice(0, 300),
                     success: tcSuccess,
+                    ...(tr.actionId ? { actionId: tr.actionId } : {}),
                 });
 
                 // Tool result summarization disabled — was confusing models into
