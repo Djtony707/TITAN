@@ -342,7 +342,7 @@ export default function MissionCanvas() {
     // sticky count is the same as before but each one can represent
     // many underlying actions.
     return rollupActivityStickies(
-      room.team.filter(m => !m.hidden).map(m => ({
+      room.team.map(m => ({
         agentId: m.agentId,
         name: m.name,
         color: m.color,
