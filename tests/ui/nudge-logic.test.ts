@@ -10,7 +10,7 @@
  * asserting actual call counts, arguments, exclusivity, and rejection.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { nudgeAction, executeNudge, nudgeHint } from '../../ui/src/pages/mission/nudgeLogic';
+import { nudgeAction, executeNudge, performNudge, nudgeHint } from '../../ui/src/pages/mission/nudgeLogic';
 import type { MissionMember, MissionRoom } from '../../ui/src/api/missions';
 
 function makeRoom(overrides: Partial<MissionRoom> = {}): MissionRoom {
@@ -49,6 +49,13 @@ function makeDeps() {
   return {
     nudgeMission: vi.fn().mockResolvedValue({ ok: true }),
     postMessage: vi.fn().mockResolvedValue({ ok: true }),
+  };
+}
+
+function makeCallbacks() {
+  return {
+    onClose: vi.fn(),
+    onError: vi.fn(),
   };
 }
 
@@ -188,6 +195,93 @@ describe('executeNudge — cancelled room (boundary)', () => {
     const room = makeRoom({ status: 'cancelled' });
     const member = makeMember({ state: 'blocked' });
     expect(nudgeHint(room, member)).toBe('Mission cancelled');
+  });
+});
+
+// ── Orchestration boundary: performNudge (criterion 3 — observable) ──
+//
+// performNudge wraps executeNudge with the onClose/onError callbacks
+// that AgentMenu provides. These tests assert the OBSERVABLE side effects
+// (onClose called, onError called with the right message) — not just
+// that executeNudge throws. This is the exact boundary AgentMenu calls.
+
+describe('performNudge — success (criterion 3: onClose called, onError not)', () => {
+  it('blocked success: calls onClose once, onError zero, nudgeMission once, postMessage zero', async () => {
+    const room = makeRoom({ status: 'blocked' });
+    const member = makeMember({ state: 'blocked' });
+    const deps = makeDeps();
+    const cb = makeCallbacks();
+
+    await performNudge(room, member, deps, cb);
+
+    expect(cb.onClose).toHaveBeenCalledTimes(1);
+    expect(cb.onError).not.toHaveBeenCalled();
+    expect(deps.nudgeMission).toHaveBeenCalledTimes(1);
+    expect(deps.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('normal success: calls onClose once, onError zero, postMessage once, nudgeMission zero', async () => {
+    const room = makeRoom({ status: 'working' });
+    const member = makeMember({ state: 'idle' });
+    const deps = makeDeps();
+    const cb = makeCallbacks();
+
+    await performNudge(room, member, deps, cb);
+
+    expect(cb.onClose).toHaveBeenCalledTimes(1);
+    expect(cb.onError).not.toHaveBeenCalled();
+    expect(deps.postMessage).toHaveBeenCalledTimes(1);
+    expect(deps.nudgeMission).not.toHaveBeenCalled();
+  });
+});
+
+describe('performNudge — rejection (criterion 3: onClose zero, onError with message)', () => {
+  it('blocked rejection: nudgeMission throws → onClose zero, onError called with error message', async () => {
+    const room = makeRoom({ status: 'blocked' });
+    const member = makeMember({ state: 'blocked' });
+    const deps = makeDeps();
+    deps.nudgeMission.mockRejectedValue(new Error('HTTP 500: internal error'));
+    const cb = makeCallbacks();
+
+    await performNudge(room, member, deps, cb);
+
+    expect(cb.onClose).not.toHaveBeenCalled();
+    expect(cb.onError).toHaveBeenCalledTimes(1);
+    expect(cb.onError).toHaveBeenCalledWith('HTTP 500: internal error');
+    expect(deps.nudgeMission).toHaveBeenCalledTimes(1);
+    expect(deps.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('normal rejection: postMessage throws → onClose zero, onError called with error message', async () => {
+    const room = makeRoom({ status: 'working' });
+    const member = makeMember({ state: 'idle' });
+    const deps = makeDeps();
+    deps.postMessage.mockRejectedValue(new Error('HTTP 403: forbidden'));
+    const cb = makeCallbacks();
+
+    await performNudge(room, member, deps, cb);
+
+    expect(cb.onClose).not.toHaveBeenCalled();
+    expect(cb.onError).toHaveBeenCalledTimes(1);
+    expect(cb.onError).toHaveBeenCalledWith('HTTP 403: forbidden');
+    expect(deps.postMessage).toHaveBeenCalledTimes(1);
+    expect(deps.nudgeMission).not.toHaveBeenCalled();
+  });
+});
+
+describe('performNudge — cancelled room (boundary: no callbacks fired)', () => {
+  it('cancelled: onClose zero, onError zero, neither API called', async () => {
+    const room = makeRoom({ status: 'cancelled' });
+    const member = makeMember({ state: 'blocked' });
+    const deps = makeDeps();
+    const cb = makeCallbacks();
+
+    await performNudge(room, member, deps, cb);
+
+    expect(cb.onClose).not.toHaveBeenCalled();
+    expect(cb.onError).not.toHaveBeenCalled();
+    expect(deps.nudgeMission).not.toHaveBeenCalled();
+    expect(deps.postMessage).not.toHaveBeenCalled();
   });
 });
 

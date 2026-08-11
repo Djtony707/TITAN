@@ -39,7 +39,7 @@ import {
   type MissionMember,
   type MissionRoom,
 } from '@/api/missions';
-import { executeNudge, nudgeHint } from './nudgeLogic';
+import { performNudge, nudgeHint } from './nudgeLogic';
 
 interface ModelOption { id: string; label: string; provider: string }
 
@@ -88,11 +88,11 @@ export function AgentMenu({
   async function nudge() {
     setBusy(true);
     setError(null);
-    try {
-      await executeNudge(room, member, { nudgeMission, postMessage });
-      onClose();
-    } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
+    await performNudge(room, member, { nudgeMission, postMessage }, {
+      onClose,
+      onError: (msg) => setError(msg),
+    });
+    setBusy(false);
   }
 
   async function sendCompose(prefix: string) {

@@ -73,6 +73,43 @@ export async function executeNudge(
 }
 
 /**
+ * Injected callbacks for the nudge orchestration boundary.
+ * These mirror AgentMenu's onClose + setError state setters.
+ */
+export interface NudgeCallbacks {
+  onClose: () => void;
+  onError: (message: string) => void;
+}
+
+/**
+ * Complete nudge orchestration: decides the action, calls the right API,
+ * closes the menu on success, or surfaces the error and keeps the menu
+ * open on rejection. This is the full boundary AgentMenu calls — tests
+ * inject all dependencies and assert observable side effects.
+ *
+ * Guarantees:
+ *   - Success: onClose called exactly once, onError not called.
+ *   - Rejection: onClose not called, onError called with the error message.
+ *   - No-op (cancelled): onClose not called, onError not called.
+ */
+export async function performNudge(
+  room: MissionRoom,
+  member: MissionMember,
+  deps: NudgeDeps,
+  callbacks: NudgeCallbacks,
+): Promise<void> {
+  try {
+    await executeNudge(room, member, deps);
+    const action = nudgeAction(room, member);
+    if (action.kind !== 'noop') {
+      callbacks.onClose();
+    }
+  } catch (err) {
+    callbacks.onError((err as Error).message);
+  }
+}
+
+/**
  * Returns the UI hint string for the Nudge button, reflecting the
  * action that will be taken when clicked.
  */
