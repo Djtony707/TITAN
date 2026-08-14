@@ -59,13 +59,21 @@ export interface ResolvedStep {
 
 export interface RouterDecisionReplay {
     kind: 'replay';
+    reasonCode: 'replay';
     recipe: CompiledRecipe;
     resolvedSteps: ResolvedStep[];
     stakes: StakesLevel;
 }
 
+export type ConfirmReasonCode = 'non-replay-safe-step' | 'stakes-floor';
+export type MissReasonCode = 'no-active-recipe-match'
+    | 'ambiguous-match'
+    | 'exact-match-slot-mismatch'
+    | 'non-replayable-undeclared-tool';
+
 export interface RouterDecisionConfirmRequired {
     kind: 'confirm-required';
+    reasonCode: ConfirmReasonCode;
     recipe: CompiledRecipe;
     resolvedSteps: ResolvedStep[];
     stakes: Exclude<StakesLevel, 'low'>;
@@ -74,6 +82,7 @@ export interface RouterDecisionConfirmRequired {
 
 export interface RouterDecisionMiss {
     kind: 'miss';
+    reasonCode: MissReasonCode;
     reason: string;
     /** The signature the frontier run will produce — feeds stage 1. */
     expectedSignature: string;
@@ -163,10 +172,14 @@ export function routeCompiled(input: RouterInput): RouterDecision {
 
     // Ambiguity rejection: two candidate matches = miss (hard gate 4).
     if (matches.length > 1) {
-        return { kind: 'miss', reason: `ambiguous-match (${matches.length} active recipes)`, expectedSignature: sig };
+        const decision: RouterDecisionMiss = { kind: 'miss', reasonCode: 'ambiguous-match', reason: `ambiguous-match (${matches.length} active recipes)`, expectedSignature: sig };
+        recordDecision(decision);
+        return decision;
     }
     if (matches.length === 0) {
-        return { kind: 'miss', reason: 'no-active-recipe-match', expectedSignature: sig };
+        const decision: RouterDecisionMiss = { kind: 'miss', reasonCode: 'no-active-recipe-match', reason: 'no-active-recipe-match', expectedSignature: sig };
+        recordDecision(decision);
+        return decision;
     }
     const recipe = matches[0]!;
 
@@ -177,7 +190,9 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     //    for both replay and confirm — the executor needs a real plan.
     const resolvedSteps = resolveSlots(recipe, slots);
     if (!resolvedSteps) {
-        return { kind: 'miss', reason: 'exact-match-slot-mismatch', expectedSignature: sig };
+        const decision: RouterDecisionMiss = { kind: 'miss', reasonCode: 'exact-match-slot-mismatch', reason: 'exact-match-slot-mismatch', expectedSignature: sig };
+        recordDecision(decision);
+        return decision;
     }
 
     // 3. Capability metadata, default deny (hard gate 3): every step's tool
@@ -185,7 +200,9 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     //    are non-replayable by default.
     const unknownTool = recipe.steps.find(s => !(s.tool in TOOL_KINDS));
     if (unknownTool) {
-        return { kind: 'miss', reason: `non-replayable-undeclared-tool (${unknownTool.tool})`, expectedSignature: sig };
+        const decision: RouterDecisionMiss = { kind: 'miss', reasonCode: 'non-replayable-undeclared-tool', reason: `non-replayable-undeclared-tool (${unknownTool.tool})`, expectedSignature: sig };
+        recordDecision(decision);
+        return decision;
     }
 
     // 4. Replay-safety check (action-aware): a step is auto-replay eligible
@@ -202,13 +219,16 @@ export function routeCompiled(input: RouterInput): RouterDecision {
         const reason = kind === 'sync'
             ? `polymorphic sync tool (${nonReplayableStep.tool}) with non-read action requires a bound approval before replay`
             : `${kind} tool (${nonReplayableStep.tool}) requires a bound approval before replay`;
-        return {
+        const decision: RouterDecisionConfirmRequired = {
             kind: 'confirm-required',
+            reasonCode: 'non-replay-safe-step',
             recipe,
             resolvedSteps,
             stakes,
             reason,
         };
+        recordDecision(decision);
+        return decision;
     }
 
     // 5. Stakes floor (Finding 2 / hard gate 2): medium/high-effect recipes
@@ -221,17 +241,115 @@ export function routeCompiled(input: RouterInput): RouterDecision {
     else if (input.stakesOverride === 'medium' && stakes === 'low') stakes = 'medium';
 
     if (stakes !== 'low') {
-        return {
+        const decision: RouterDecisionConfirmRequired = {
             kind: 'confirm-required',
+            reasonCode: 'stakes-floor',
             recipe,
             resolvedSteps,
             stakes,
             reason: `${stakes}-stakes recipe requires a bound approval before replay`,
         };
+        recordDecision(decision);
+        return decision;
     }
 
     // 5. Replay — zero frontier-model calls for this turn.
-    return { kind: 'replay', recipe, resolvedSteps, stakes };
+    const decision: RouterDecisionReplay = { kind: 'replay', reasonCode: 'replay', recipe, resolvedSteps, stakes };
+    recordDecision(decision);
+    return decision;
+}
+
+// ── Router decision telemetry ──────────────────────────────────────────────
+
+/** Module-level timestamp for the getter's `since` field. Set once at load. */
+const routerDecisionCountersSince = Date.now();
+
+/**
+ * In-memory counters keyed by `kind` (for replay/confirm-required) and
+ * `reasonCode` (for miss sub-reasons). The top-level counts the decision kind;
+ * sub-reasons are tracked in nested objects so reasonCode values serve as keys
+ * directly — no prefix translation.
+ */
+const routerDecisionCounters: Record<string, number> = {
+    replay: 0,
+    'confirm-required': 0,
+    miss: 0,
+};
+
+const routerDecisionMissReasons: Record<string, number> = {
+    'no-active-recipe-match': 0,
+    'ambiguous-match': 0,
+    'exact-match-slot-mismatch': 0,
+    'non-replayable-undeclared-tool': 0,
+    'unclassified': 0,
+};
+
+const routerDecisionConfirmReasons: Record<string, number> = {
+    'non-replay-safe-step': 0,
+    'stakes-floor': 0,
+    'unclassified': 0,
+};
+
+/**
+ * Increment counters for a single decision. Uses reasonCode discriminants —
+ * stable, parse-free. Bounded-key guard: if the reasonCode is not a known key
+ * in the nest, the increment falls to `unclassified`.
+ */
+export function recordDecision(decision: RouterDecision): void {
+    routerDecisionCounters[decision.kind] = (routerDecisionCounters[decision.kind] ?? 0) + 1;
+    if (decision.kind === 'miss') {
+        const nest = routerDecisionMissReasons as Record<string, number>;
+        const key = decision.reasonCode as string;
+        if (key in nest) {
+            nest[key]++;
+        } else {
+            nest['unclassified'] = (nest['unclassified'] ?? 0) + 1;
+        }
+    } else if (decision.kind === 'confirm-required') {
+        const nest = routerDecisionConfirmReasons as Record<string, number>;
+        const key = decision.reasonCode as string;
+        if (key in nest) {
+            nest[key]++;
+        } else {
+            nest['unclassified'] = (nest['unclassified'] ?? 0) + 1;
+        }
+    }
+    // Replay reasonCode is always 'replay' — already counted via decision.kind
+}
+
+/**
+ * Return the wire-ready counters with the `since` ISO timestamp.
+ The getter never produces NaN — every known counter key is pre-initialized,
+ and all increments use `(counters[key] ?? 0) + 1`.
+ */
+export interface RouterDecisionCounters {
+    replay: number;
+    'confirm-required': number;
+    miss: number;
+    missReasons: Record<MissReasonCode | 'unclassified', number>;
+    confirmReasons: Record<ConfirmReasonCode | 'unclassified', number>;
+    since: string;
+}
+
+export function getRouterDecisionCounters(): RouterDecisionCounters {
+    return {
+        replay: routerDecisionCounters.replay ?? 0,
+        'confirm-required': routerDecisionCounters['confirm-required'] ?? 0,
+        miss: routerDecisionCounters.miss ?? 0,
+        missReasons: {
+            'no-active-recipe-match': routerDecisionMissReasons['no-active-recipe-match'] ?? 0,
+            'ambiguous-match': routerDecisionMissReasons['ambiguous-match'] ?? 0,
+            'exact-match-slot-mismatch': routerDecisionMissReasons['exact-match-slot-mismatch'] ?? 0,
+            'non-replayable-undeclared-tool': routerDecisionMissReasons['non-replayable-undeclared-tool'] ?? 0,
+            'unclassified': routerDecisionMissReasons['unclassified'] ?? 0,
+        },
+        confirmReasons: {
+            'non-replay-safe-step': routerDecisionConfirmReasons['non-replay-safe-step'] ?? 0,
+            'stakes-floor': routerDecisionConfirmReasons['stakes-floor'] ?? 0,
+            'unclassified': routerDecisionConfirmReasons['unclassified'] ?? 0,
+        },
+        since: new Date(routerDecisionCountersSince).toISOString(),
+    };
 }
 
 /**
