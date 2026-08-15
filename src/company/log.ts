@@ -61,9 +61,13 @@ export const QUEUE_KINDS = [
     'task.started', 'task.retry', 'task.blocked', 'task.unblocked',
     'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
 ] as const;
+/** Slice-7 brain kinds (attributed pooled memory + hire/fire). */
+export const BRAIN_KINDS = [
+    'brain.entry', 'brain.tombstone', 'agent.hired', 'agent.retired',
+] as const;
 /** knownKinds: the FULL immutable schema union — decode/read/verify always
  *  work over complete history regardless of capabilities (design v5 §1). */
-export const KNOWN_KINDS = [...EVENT_KINDS, ...QUEUE_KINDS] as const;
+export const KNOWN_KINDS = [...EVENT_KINDS, ...QUEUE_KINDS, ...BRAIN_KINDS] as const;
 export type CompanyEventKind = (typeof KNOWN_KINDS)[number];
 
 /** Context handed to an installed lifecycle validator INSIDE the append txn. */
@@ -85,6 +89,9 @@ export interface CompanyLogOptions {
      *  appendableKinds — a queue-capable instance is validated by
      *  construction, and the validator cannot be replaced or stubbed. */
     queue?: boolean;
+    /** Closed brain mode (slice 7): enables the brain kinds AND installs
+     *  the built-in brain validator internally — same closure as queue. */
+    brain?: boolean;
 }
 
 /** Which actors may append which kinds (slice 1). '*' = any registered actor. */
@@ -105,6 +112,13 @@ const AUTHORITY: Record<string, readonly string[] | '*'> = {
     'hold.lifted': ['watchman', 'user'],
     'commitment.opened': '*',
     'commitment.closed': '*',
+    // Slice-7 coarse authority; the installed brain validator enforces the
+    // fine-grained rules (attribution, tombstone authorship, revocation,
+    // roster transitions) in-txn.
+    'brain.entry': '*',
+    'brain.tombstone': '*',
+    'agent.hired': ['ceo', 'user'],
+    'agent.retired': ['ceo', 'user'],
 };
 
 export interface CompanyEvent extends SystemEvent {
@@ -141,7 +155,7 @@ export class CompanyLog {
         // own key directory. CompanyLog retains its own keysDir reference
         // for key loading operations (loadAgentPublicKey etc.), but the
         // capability's key registry is canonical.
-        this.cap = openCompanyFeature(titanHome, { queue: opts.queue });
+        this.cap = openCompanyFeature(titanHome, { queue: opts.queue, brain: opts.brain });
     }
 
     /**

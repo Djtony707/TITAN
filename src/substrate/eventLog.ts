@@ -90,6 +90,7 @@ import {
 } from '../company/keys.js';
 import { emit as traceBusEmit, type CompanyEventPayload } from './traceBus.js';
 import { queueValidator as builtinQueueValidator } from '../company/queue.js';
+import { brainValidator as builtinBrainValidator } from '../company/brain.js';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -1512,11 +1513,20 @@ const COMPANY_QUEUE_KINDS = [
     'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
 ] as readonly string[];
 
-/** Company feature options — the ONLY caller-controllable parameter. */
+/** Company slice-7 brain appendable kinds — HARDCODED. */
+const COMPANY_BRAIN_KINDS = [
+    'brain.entry', 'brain.tombstone', 'agent.hired', 'agent.retired',
+] as readonly string[];
+
+/** Company feature options — the ONLY caller-controllable parameters. */
 export interface CompanyFeatureOptions {
     /** Closed queue mode: enables slice-2 kinds + the built-in queue
      *  validator. The validator is loaded internally — NOT caller-supplied. */
     queue?: boolean;
+    /** Closed brain mode (slice 7): enables the brain kinds + the built-in
+     *  brain validator. Same closure — NOT caller-supplied. Composes with
+     *  queue mode. */
+    brain?: boolean;
 }
 
 /**
@@ -1542,22 +1552,28 @@ export function openCompanyFeature(
     // An attacker cannot redirect the capability to their own key directory
     // (Honey D4 exploit closure).
     const keysDir = join(titanHome, 'company', 'keys');
-    const appendableKinds = opts.queue ? COMPANY_QUEUE_KINDS : COMPANY_BASE_KINDS;
+    const appendableKinds = [
+        ...(opts.queue ? COMPANY_QUEUE_KINDS : COMPANY_BASE_KINDS),
+        ...(opts.brain ? COMPANY_BRAIN_KINDS : []),
+    ] as readonly string[];
 
-    // Queue validator: the built-in queueValidator from company/queue.ts.
-    // This is a static import — company/queue.ts only has type-only
+    // Queue/brain validators: built-ins from company/queue.ts and
+    // company/brain.ts. Static imports — both modules only have type-only
     // imports from company/log.ts (no runtime circular dependency).
-    // The validator is NOT caller-supplied — it is hardcoded.
+    // Validators are NOT caller-supplied — they are hardcoded. Each
+    // validator self-filters on its own kinds, so composition is safe.
     let validator: SystemLifecycleValidator | undefined;
-    if (opts.queue) {
+    if (opts.queue || opts.brain) {
         validator = (ctx: SystemAppendContext) => {
-            builtinQueueValidator({
+            const bridged = {
                 kind: ctx.kind as never, // CompanyEventKind — erased at runtime
                 actor: ctx.actor,
                 payload: ctx.payload,
                 events: ctx.events as never, // CompanyEvent[] — erased at runtime
                 capability: ctx.capability,
-            } as never); // AppendContext — type-only, erased at runtime
+            } as never; // AppendContext — type-only, erased at runtime
+            if (opts.queue) builtinQueueValidator(bridged);
+            if (opts.brain) builtinBrainValidator(bridged);
         };
     }
 
@@ -1644,6 +1660,7 @@ const COMPANY_NAMESPACE = {
         'task.delegated', 'task.result', 'task.checked',
         'task.started', 'task.retry', 'task.blocked', 'task.unblocked',
         'hold.set', 'hold.lifted', 'commitment.opened', 'commitment.closed',
+        'brain.entry', 'brain.tombstone', 'agent.hired', 'agent.retired',
     ] as readonly string[],
     authority: {
         'company.created': ['user'],
@@ -1660,6 +1677,13 @@ const COMPANY_NAMESPACE = {
         'hold.lifted': ['watchman', 'user'],
         'commitment.opened': '*',
         'commitment.closed': '*',
+        // Slice-7 brain: coarse gates here; fine-grained rules (attribution,
+        // tombstone authorship, retirement revocation, roster transitions)
+        // live in the built-in brain validator.
+        'brain.entry': '*',
+        'brain.tombstone': '*',
+        'agent.hired': ['ceo', 'user'],
+        'agent.retired': ['ceo', 'user'],
     } as Record<string, readonly string[] | '*'>,
     extraDdl: [
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_one_company ON events(kind) WHERE kind = 'company.created'`,
