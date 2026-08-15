@@ -6,9 +6,9 @@
  * real ~/.titan/trajectories/ folder.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, appendFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 
 let TMP_HOME: string;
 
@@ -212,6 +212,120 @@ describe('TrajectoryRecorder — on-disk JSONL format', () => {
             // Every line must be standalone parseable JSON.
             expect(() => JSON.parse(line)).not.toThrow();
         }
+    });
+});
+
+/* ───────────────────── path traversal safety (security) ───────────────────── */
+
+describe('TrajectoryRecorder — path traversal safety (security)', () => {
+    const root = () => resolve(join(TMP_HOME, 'trajectories'));
+
+    it('trajectoryPathFor sanitizes a malicious spawnId so the resolved path stays under the trajectories root', () => {
+        // Mirrors the real attack: spawnId is `${modelSuppliedName}-${Date.now()}`
+        // (subAgent.ts), so a crafted spawn_agent `name` like this reaches
+        // trajectoryPathFor verbatim.
+        const malicious = '../../../etc/cron.d/x-1699999999999';
+        const when = new Date('2026-01-01T00:00:00.000Z');
+        const path = trajectoryPathFor(malicious, when);
+        const resolved = resolve(path);
+        expect(resolved === root() || resolved.startsWith(root() + sep)).toBe(true);
+        // The filename component must not smuggle any new path segment.
+        const fileName = path.slice(path.lastIndexOf(sep) + 1);
+        expect(fileName).not.toContain('/');
+        expect(fileName).not.toContain('\\');
+        expect(fileName.startsWith('.')).toBe(false);
+    });
+
+    it('startSpawnTrajectory cannot be made to write outside the trajectories root via a malicious spawnId', () => {
+        const malicious = '../../../../../../../../tmp/titan-traversal-pwned';
+        const handle = startSpawnTrajectory({ spawnId: malicious, model: 'stub/echo', task: 'pwn' });
+        finishSpawnTrajectory(handle, { status: 'done', content: '', totalRounds: 0, toolsUsed: [] });
+
+        // Recording must still have succeeded (degrades to disabled only on
+        // an unverified path, which sanitization should never produce).
+        expect(handle.disabled).toBe(false);
+        const resolved = resolve(handle.path);
+        expect(resolved === root() || resolved.startsWith(root() + sep)).toBe(true);
+        expect(existsSync(handle.path)).toBe(true);
+
+        // Confirm nothing landed at the naive (unsanitized) traversal target.
+        expect(existsSync(join('/tmp', 'titan-traversal-pwned.jsonl'))).toBe(false);
+        expect(existsSync(join('/tmp', 'titan-traversal-pwned'))).toBe(false);
+    });
+
+    it('sanitization round-trips: loadTrajectory finds a trajectory recorded under a traversal-laden spawnId', () => {
+        const malicious = '../../../root/.ssh/authorized_keys';
+        const handle = startSpawnTrajectory({ spawnId: malicious, model: 'stub/echo', task: 't' });
+        finishSpawnTrajectory(handle, { status: 'done', content: 'ok', totalRounds: 0, toolsUsed: [] });
+        const events = loadTrajectory(malicious);
+        expect(events).not.toBeNull();
+        expect(events!.map(e => e.kind)).toEqual(['start', 'finish']);
+    });
+
+    it('falls back to a safe name when sanitization would otherwise empty the spawnId', () => {
+        // Allowed chars are [a-zA-Z0-9._-]; dots survive the allowlist pass
+        // unchanged, so a spawnId of pure dots is the case that actually
+        // collapses to empty once leading dots are stripped (a mixed id like
+        // "../../.." still leaves "_.._.." behind — non-empty, just harmless).
+        const allDots = '...';
+        const handle = startSpawnTrajectory({ spawnId: allDots, model: 'stub/echo', task: 't' });
+        expect(handle.disabled).toBe(false);
+        const resolved = resolve(handle.path);
+        expect(resolved === root() || resolved.startsWith(root() + sep)).toBe(true);
+        const fileName = handle.path.slice(handle.path.lastIndexOf(sep) + 1);
+        expect(fileName).toBe('unknown-spawn.jsonl');
+    });
+
+    it('neutralizes a pure "../../.." spawnId without ever needing the fallback (still stays within root)', () => {
+        const allTraversal = '../../..';
+        const handle = startSpawnTrajectory({ spawnId: allTraversal, model: 'stub/echo', task: 't' });
+        expect(handle.disabled).toBe(false);
+        const resolved = resolve(handle.path);
+        expect(resolved === root() || resolved.startsWith(root() + sep)).toBe(true);
+        const fileName = handle.path.slice(handle.path.lastIndexOf(sep) + 1);
+        expect(fileName).not.toContain('/');
+        expect(fileName).not.toContain('\\');
+        expect(fileName.startsWith('.')).toBe(false);
+    });
+});
+
+/* ───────────────────── malformed JSONL resilience ───────────────────── */
+
+describe('TrajectoryRecorder — malformed JSONL resilience', () => {
+    it('readJsonl skips a corrupt line instead of discarding the whole trajectory', () => {
+        const handle = startSpawnTrajectory({ spawnId: 'malformed-line', model: 'stub/echo', task: 't' });
+        recordNote(handle, 'first note');
+        // Inject a non-JSON line directly onto disk, simulating a partial
+        // write / disk corruption between two well-formed events.
+        appendFileSync(handle.path, 'THIS IS NOT VALID JSON {{{\n', 'utf-8');
+        recordNote(handle, 'second note');
+        finishSpawnTrajectory(handle, { status: 'done', content: '', totalRounds: 0, toolsUsed: [] });
+
+        // Sanity: the corrupt line really is on disk, between the two notes.
+        const raw = readFileSync(handle.path, 'utf-8');
+        expect(raw).toContain('THIS IS NOT VALID JSON');
+
+        const events = loadTrajectory('malformed-line');
+        expect(events).not.toBeNull();
+        // The 4 well-formed events survive; only the corrupt line is dropped —
+        // a single bad line must not zero out the entire file (old behavior:
+        // one JSON.parse throw inside the shared map() call discarded everything).
+        expect(events!.map(e => e.kind)).toEqual(['start', 'note', 'note', 'finish']);
+        const notes = events!.filter((e): e is Extract<typeof e, { kind: 'note' }> => e.kind === 'note');
+        expect(notes.map(n => n.data.text)).toEqual(['first note', 'second note']);
+    });
+
+    it('returns an empty (not null) event list rather than throwing when every line is malformed', () => {
+        // Use startSpawnTrajectory only to create the day-bucket dir + get a
+        // real on-disk path, then blow away its contents with pure garbage —
+        // isolates the "every line fails to parse" case from the "some lines
+        // fail" case above.
+        const handle = startSpawnTrajectory({ spawnId: 'all-malformed', model: 'stub/echo', task: 't' });
+        writeFileSync(handle.path, 'not json at all\nalso not json\n{{{broken\n', 'utf-8');
+        expect(() => loadTrajectory('all-malformed')).not.toThrow();
+        const events = loadTrajectory('all-malformed');
+        expect(events).not.toBeNull();
+        expect(events).toEqual([]);
     });
 });
 

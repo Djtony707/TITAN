@@ -100,6 +100,18 @@ export type RouterDecision = RouterDecisionReplay | RouterDecisionConfirmRequire
  * a miss costs one frontier run.
  */
 export function resolveSlots(recipe: CompiledRecipe, slots: TypedSlot[]): ResolvedStep[] | null {
+    // Positional TYPE check (council decision, Q2): the incoming message's
+    // slot types must match the recipe's recorded slot-type sequence exactly.
+    // Without this, a signature collision or same-shape-different-meaning
+    // request pours a {num} into a {path} arg. Recipes compiled before
+    // slotTypes existed have no sequence recorded — for those, positional
+    // fill alone applies (pre-existing behavior; recompilation upgrades them).
+    if (recipe.slotTypes) {
+        if (recipe.slotTypes.length !== slots.length) return null;
+        for (let i = 0; i < slots.length; i++) {
+            if (slots[i]!.type !== recipe.slotTypes[i]) return null;
+        }
+    }
     const values = slots.map(s => s.value);
     let cursor = 0;
     const resolved: ResolvedStep[] = [];

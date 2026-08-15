@@ -288,6 +288,23 @@ export function registerRecipe(
         throw new Error(`RecipeRegistry: compile gate refused registration of ${recipe.id} — selfCompiling.compile is off`);
     }
     const reg = load();
+    // Registration creates NEW candidates — it must not bypass the TRANSITIONS
+    // state machine (audit 2026-08-15: the unconditional write silently reset
+    // retired/demoted/shadow/active recipes to 'candidate', resurrecting
+    // terminally-retired recipes and wiping live shadow evidence).
+    const prior = reg.entries[recipe.id];
+    if (prior) {
+        if (prior.recipe.state === 'retired') {
+            throw new Error(`RecipeRegistry: refusing to re-register ${recipe.id} — 'retired' is terminal`);
+        }
+        if (prior.recipe.state !== 'candidate') {
+            throw new Error(
+                `RecipeRegistry: refusing to re-register ${recipe.id} — entry is '${prior.recipe.state}'; demote/retire it first`,
+            );
+        }
+        // prior is itself a candidate: re-registration refreshes the compiled
+        // body (a legal candidate → candidate refresh, recorded as such below).
+    }
     const entry: RegistryEntry = {
         recipe: { ...recipe, state: 'candidate' },
         baselineTokens: measureBaselineTokens(recipe),
@@ -375,6 +392,11 @@ export function activate(
     const reg = load();
     const entry = reg.entries[id];
     if (!entry) throw new Error(`RecipeRegistry: unknown recipe ${id}`);
+    // Idempotent: recordShadowComparison promotes atomically at threshold
+    // (council decision, Q3), so callers following the old convention —
+    // feed comparisons, then call activate() — find the goal state already
+    // reached. Reaching 'active' twice is success, not an error.
+    if (entry.recipe.state === 'active') return entry;
     const { shadowComparisons, shadowSuccesses } = entry.recipe.stats;
     if (entry.recipe.state === 'shadow') {
         if (shadowComparisons < SHADOW_MIN_COMPARISONS) {
@@ -491,6 +513,20 @@ export function recordShadowComparison(
     reg.comparisons.push(record);
     entry.recipe.stats.shadowComparisons++;
     if (equivalent) entry.recipe.stats.shadowSuccesses++;
+    // Atomic promotion check (council decision, Q3): record + threshold check
+    // + transition happen in ONE load/save so no caller can race a split
+    // read-modify-write. Before this, activate() had no production caller at
+    // all — shadow recipes accumulated evidence forever and nothing could
+    // reach 'active' (audit 2026-08-15). The gates stay exactly activate()'s:
+    // shadow state, promote gate on, window size, and success rate.
+    const { shadowComparisons, shadowSuccesses } = entry.recipe.stats;
+    if (
+        entry.recipe.state === 'shadow'
+        && shadowComparisons >= SHADOW_MIN_COMPARISONS
+        && shadowSuccesses / shadowComparisons >= SHADOW_MIN_SUCCESS_RATE
+    ) {
+        transition(entry, 'active', `promotion gate passed (${shadowSuccesses}/${shadowComparisons} equivalent)`);
+    }
     save(reg);
     return record;
 }

@@ -63,13 +63,29 @@ function nextId(startedAt: string): string {
 }
 
 /** Append a span to the v8 Slice 3 record sink. Append-only; the legacy
- *  spans.jsonl is never touched. Best-effort. */
+ *  spans.jsonl is never touched. Best-effort.
+ *
+ *  Self-trims to MAX_SPANS, mirroring the legacy sink's read-side trim
+ *  in listSpans() below — but applied here on the WRITE path too, since
+ *  the record sink is only read by an on-demand gateway route
+ *  (routes/record.ts) that may go a long time between calls. Relying
+ *  solely on a read-side trim would let the file grow unbounded between
+ *  those reads. */
 export function recordSpanRecord(span: Omit<TraceSpan, 'id'>): TraceSpan | null {
     const full: TraceSpan = { ...span, id: nextId(span.startedAt) };
     try {
         const path = recordSpansPath();
         mkdirSync(join(path, '..'), { recursive: true });
-        appendFileSync(path, JSON.stringify(full) + '\n', 'utf-8');
+        let existingLines: string[] = [];
+        if (existsSync(path)) {
+            try { existingLines = readFileSync(path, 'utf-8').split('\n').filter(Boolean); } catch { /* treat as empty */ }
+        }
+        if (existingLines.length + 1 > MAX_SPANS) {
+            const trimmed = [...existingLines, JSON.stringify(full)].slice(-MAX_SPANS);
+            writeFileSync(path, trimmed.join('\n') + '\n', 'utf-8');
+        } else {
+            appendFileSync(path, JSON.stringify(full) + '\n', 'utf-8');
+        }
         return full;
     } catch (e) {
         logger.debug(COMPONENT, `Failed to record span to record sink: ${(e as Error).message}`);
@@ -176,12 +192,21 @@ export function toOTel(spans: TraceSpan[]): Record<string, unknown> {
     };
 }
 
-/** Read record spans back (newest first). */
+/** Read record spans back (newest first). Self-trims to MAX_SPANS like
+ *  listSpans() — the write-side trim in recordSpanRecord() only guards
+ *  spans appended after this fix landed, so a pre-existing oversized
+ *  file still needs to be caught (and shrunk) here on read. */
 export function listRecordSpans(opts: { sessionId?: string; limit?: number } = {}): TraceSpan[] {
     const path = recordSpansPath();
     if (!existsSync(path)) return [];
     let lines: string[];
     try { lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean); } catch { return []; }
+    // self-trim if the file grew past the cap
+    if (lines.length > MAX_SPANS) {
+        const trimmed = lines.slice(-MAX_SPANS);
+        try { writeFileSync(path, trimmed.join('\n') + '\n', 'utf-8'); } catch { /* best effort */ }
+        lines = trimmed;
+    }
     const spans: TraceSpan[] = [];
     for (const line of lines) {
         try { spans.push(JSON.parse(line)); } catch { /* skip corrupt line */ }

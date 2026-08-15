@@ -117,12 +117,20 @@ const ENTITY_PATTERNS: Array<{ regex: RegExp; type: string; extractGroup: number
 export function extractTaskSignature(task: string): TaskSignature {
     const lower = task.toLowerCase();
     
-    // Find the first matching intent
+    // Find the intent whose keyword match starts earliest in the task text
+    // (per the documented contract above: "the verb is the first matching
+    // keyword in the task text"). This is NOT the first pattern in
+    // INTENT_PATTERNS that matches anywhere — a pattern earlier in the
+    // array can match later in the text than a pattern further down the
+    // array. Ties (identical match position) keep INTENT_PATTERNS order,
+    // since we only replace the best match on a STRICTLY earlier position.
     let intent = 'unknown';
+    let bestPosition = Infinity;
     for (const pattern of INTENT_PATTERNS) {
-        if (pattern.regex.test(lower)) {
+        const match = pattern.regex.exec(lower);
+        if (match && match.index < bestPosition) {
+            bestPosition = match.index;
             intent = pattern.intent;
-            break;
         }
     }
     

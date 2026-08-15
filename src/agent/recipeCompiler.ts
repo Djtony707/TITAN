@@ -22,6 +22,7 @@
 
 import type { Recipe, RecipeStep } from '../recipes/types.js';
 import { getToolKind, isDestructive, isRisky } from './toolIntent.js';
+import { computeAbstractSignature, type SlotType } from './recipeSignature.js';
 import type { PersistedTrace } from './traceStore.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -37,6 +38,15 @@ export interface CompiledRecipe extends Omit<Recipe, 'steps'> {
     steps: CompiledRecipeStep[];
     /** Abstracted task signature this recipe answers (see recipeSignature). */
     signature: string;
+    /** Human-readable signature diagnostic for logs/UI. NEVER used in matching. */
+    signaturePreview?: string;
+    /**
+     * The typed slot sequence of the source message, in occurrence order.
+     * At replay, the incoming message's slot types must match this sequence
+     * positionally (council decision, Q2): positional fill without a type
+     * check lets a colliding request pour a {num} into a {path} slot.
+     */
+    slotTypes?: SlotType[];
     sourceTraceIds: string[];
     tier: 1 | 2;
     /** Promotion state machine: candidate → shadow → active → (demoted|retired) */
@@ -123,6 +133,11 @@ export function compileRecipe(
     if (!trace.signature) {
         throw new Error(`compileRecipe: trace ${trace.traceId} has no signature — persist via traceStore first`);
     }
+    // The signature namespace is the abstract signature (council decision, Q1/Q2):
+    // recompute from the message so the recipe matches what the router computes
+    // at request time, even for traces persisted by an older TITAN. The typed
+    // slot sequence is recorded for the router's positional type check.
+    const { sig, preview, slots } = computeAbstractSignature(trace.message);
     const parameters: NonNullable<Recipe['parameters']> = {};
     const steps: CompiledRecipeStep[] = [];
 
@@ -163,7 +178,9 @@ export function compileRecipe(
         parameters,
         steps,
         createdAt: new Date().toISOString(),
-        signature: trace.signature,
+        signature: sig,
+        signaturePreview: preview,
+        slotTypes: slots.map(s => s.type),
         sourceTraceIds: [trace.traceId],
         tier: 2,
         state: 'candidate',

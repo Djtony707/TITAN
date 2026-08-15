@@ -195,7 +195,15 @@ describe('routerMiddleware', () => {
     it('misses on an empty registry', () => {
         const d = routeCompiled({ message: 'summarize /tmp/x.md', activeRecipes: [] });
         expect(d.kind).toBe('miss');
-        if (d.kind === 'miss') expect(d.expectedSignature).toBe('summarize {path}');
+        // The signature is the sha256 of the full abstracted form (council
+        // decision: no readable text in persisted keys, no truncation) —
+        // assert against the same production function, and that the same
+        // FAMILY ("summarize {path}") yields the same signature.
+        if (d.kind === 'miss') {
+            expect(d.expectedSignature).toBe(computeAbstractSignature('summarize /tmp/x.md').sig);
+            expect(d.expectedSignature).toBe(computeAbstractSignature('summarize /home/other/place.txt').sig);
+            expect(d.expectedSignature).toMatch(/^[0-9a-f]{64}$/);
+        }
     });
 
     it('replays an exact family match with slots filled positionally', () => {

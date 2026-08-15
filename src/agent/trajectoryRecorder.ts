@@ -55,7 +55,7 @@
  */
 
 import { mkdirSync, appendFileSync, existsSync, readFileSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 
 /* ───────────────────────────  Types  ─────────────────────────── */
@@ -125,6 +125,11 @@ export interface TrajectoryHandle {
 const TRAJECTORY_DIR = join(TITAN_HOME, 'trajectories');
 const MAX_ARGS_BYTES = 2 * 1024;
 const MAX_RESULT_BYTES = 4 * 1024;
+/** Cap on the sanitized spawnId path component (well above any real spawnId). */
+const MAX_SPAWN_ID_LEN = 100;
+/** Used when sanitization strips a spawnId down to nothing (e.g. an
+ *  attacker-supplied name made entirely of path-traversal characters). */
+const FALLBACK_SPAWN_ID = 'unknown-spawn';
 
 /* ───────────────────────────  Path helpers  ─────────────────────────── */
 
@@ -132,10 +137,51 @@ function dayBucket(d = new Date()): string {
     return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Sanitizes a spawnId into a safe single filesystem path component.
+ *
+ * spawnId is built from the MODEL-SUPPLIED `name` argument of the
+ * spawn_agent tool (`${config.name || 'SubAgent'}-${Date.now()}` in
+ * subAgent.ts) — it is untrusted input. Without sanitization, a crafted
+ * name like "../../../etc/cron.d/x" flows straight into
+ * `${spawnId}.jsonl` and lets the resulting path escape the
+ * trajectories directory (path traversal / arbitrary file write).
+ *
+ * Strict allowlist: only [a-zA-Z0-9._-] survive (this alone rules out
+ * '/' and '\\', so the sanitized id can never introduce a new path
+ * segment). Leading dots are additionally stripped so the result can
+ * never collapse to "." or "..". Length is capped, and an empty result
+ * (e.g. a name of pure traversal/control characters) falls back to a
+ * fixed safe id rather than producing an empty filename.
+ */
+function sanitizeSpawnId(spawnId: string): string {
+    const allowedChars = spawnId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const noLeadingDots = allowedChars.replace(/^\.+/, '');
+    const capped = noLeadingDots.slice(0, MAX_SPAWN_ID_LEN);
+    return capped || FALLBACK_SPAWN_ID;
+}
+
+function trajectoryFileName(spawnId: string): string {
+    return `${sanitizeSpawnId(spawnId)}.jsonl`;
+}
+
+/** Defense-in-depth: verify a resolved path is still under the
+ *  trajectories root before any fs operation touches it. sanitizeSpawnId()
+ *  should make an escape impossible on its own, but a resolved-path check
+ *  right before disk access is cheap insurance against a future bug in
+ *  the sanitizer (or a caller that builds a path without it). */
+function isWithinTrajectoryRoot(path: string): boolean {
+    const root = resolve(TRAJECTORY_DIR);
+    const resolved = resolve(path);
+    return resolved === root || resolved.startsWith(root + sep);
+}
+
 /** Resolves the canonical JSONL path for a spawn. Exposed so tests +
- *  CLI tools can drill in without re-implementing the layout. */
+ *  CLI tools can drill in without re-implementing the layout. The
+ *  spawnId is sanitized (see sanitizeSpawnId) so untrusted input can
+ *  never escape TRAJECTORY_DIR. */
 export function trajectoryPathFor(spawnId: string, when: Date = new Date()): string {
-    return join(TRAJECTORY_DIR, dayBucket(when), `${spawnId}.jsonl`);
+    return join(TRAJECTORY_DIR, dayBucket(when), trajectoryFileName(spawnId));
 }
 
 /* ───────────────────────────  Opt-out  ─────────────────────────── */
@@ -169,6 +215,13 @@ export function startSpawnTrajectory(fields: TrajectoryStartFields): TrajectoryH
         return { spawnId: fields.spawnId, path: '', startedAt, disabled: true };
     }
     const path = trajectoryPathFor(fields.spawnId);
+    if (!isWithinTrajectoryRoot(path)) {
+        // Should be unreachable given sanitizeSpawnId(), but never touch the
+        // filesystem on an unverified path — degrade to a disabled handle
+        // instead, matching the module's "recorder must never fail the
+        // spawn" philosophy.
+        return { spawnId: fields.spawnId, path: '', startedAt, disabled: true };
+    }
     try {
         const dir = join(path, '..');
         if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -259,8 +312,10 @@ export function loadTrajectory(spawnId: string): TrajectoryEvent[] | null {
     if (!existsSync(TRAJECTORY_DIR)) return null;
     let days: string[];
     try { days = readdirSync(TRAJECTORY_DIR); } catch { return null; }
+    const fileName = trajectoryFileName(spawnId);
     for (const day of days) {
-        const path = join(TRAJECTORY_DIR, day, `${spawnId}.jsonl`);
+        const path = join(TRAJECTORY_DIR, day, fileName);
+        if (!isWithinTrajectoryRoot(path)) continue;
         if (existsSync(path)) {
             return readJsonl(path);
         }
@@ -323,12 +378,20 @@ export function listTrajectories(
 /* ───────────────────────────  Helpers  ─────────────────────────── */
 
 function readJsonl(path: string): TrajectoryEvent[] {
+    let raw: string;
     try {
-        const raw = readFileSync(path, 'utf-8');
-        return raw.split('\n').filter(Boolean).map(line => JSON.parse(line) as TrajectoryEvent);
+        raw = readFileSync(path, 'utf-8');
     } catch {
         return [];
     }
+    const events: TrajectoryEvent[] = [];
+    for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+            events.push(JSON.parse(line) as TrajectoryEvent);
+        } catch { /* skip malformed line — one corrupt event shouldn't discard the whole file */ }
+    }
+    return events;
 }
 
 function capString(s: string, maxBytes: number): string {

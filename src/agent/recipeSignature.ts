@@ -24,6 +24,8 @@
  * signature) import it, and a shared home avoids an import cycle.
  */
 
+import { createHash } from 'crypto';
+
 export type SlotType = 'path' | 'url' | 'quoted' | 'date' | 'num';
 
 /** One normalized entity: which placeholder replaced it and the original literal. */
@@ -64,8 +66,17 @@ const GROUP_TYPES: SlotType[] = ['quoted', 'url', 'path', 'date', 'num'];
  */
 export function abstractMessage(message: string): { abstracted: string; slots: TypedSlot[] } {
     const slots: TypedSlot[] = [];
+    // A message that already CONTAINS a literal placeholder token ("{path}")
+    // must stay distinguishable from a message where a real entity was lifted
+    // to that placeholder — same abstracted text would mean same signature
+    // with a different slot count, which breaks positional slot-fill. Escape
+    // pre-existing tokens to a marker the lifter never produces.
+    const escaped = (message || '').replace(
+        /\{(path|url|quoted|date|num)\}/gi,
+        (_m, t: string) => `{{literal-${t.toLowerCase()}}}`,
+    );
     const re = new RegExp(COMBINED_RE.source, COMBINED_RE.flags);
-    const text = (message || '').replace(re, (...args) => {
+    const text = escaped.replace(re, (...args) => {
         const match = args[0] as string;
         const groups = args.slice(1, 6) as Array<string | undefined>;
         const idx = groups.findIndex(g => g !== undefined);
@@ -78,12 +89,18 @@ export function abstractMessage(message: string): { abstracted: string; slots: T
 }
 
 /**
- * The abstracted task signature for a message: stable hash input covering
- * the slot-abstracted intent. Byte-exact strictness on the abstracted form
- * is the feature — one recipe serves the whole parameter family, and two
- * requests that differ in any literal token never collide.
+ * The abstracted task signature for a message. Byte-exact strictness on the
+ * abstracted form is the feature — one recipe serves the whole parameter
+ * family, and two requests that differ in any literal token never collide.
+ *
+ * `sig` is the SHA-256 of the FULL abstracted form (no truncation): a
+ * readable prefix would leak normalized request text into persisted keys
+ * and logs, and a truncated hash weakens the zero-false-positive bar.
+ * `preview` is a short human-readable diagnostic for logs/UI — it must
+ * NEVER participate in matching.
  */
-export function computeAbstractSignature(message: string): { sig: string; slots: TypedSlot[] } {
+export function computeAbstractSignature(message: string): { sig: string; preview: string; slots: TypedSlot[] } {
     const { abstracted, slots } = abstractMessage(message);
-    return { sig: abstracted.slice(0, 200), slots };
+    const sig = createHash('sha256').update(abstracted, 'utf8').digest('hex');
+    return { sig, preview: abstracted.slice(0, 80), slots };
 }

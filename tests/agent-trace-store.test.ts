@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { computeAbstractSignature } from '../src/agent/recipeSignature.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -143,7 +144,12 @@ describe('onTraceEnd seam + wireTracePersistence', () => {
         expect(stored).toHaveLength(1);
         const t = stored[0]!;
         expect(t.status).toBe('completed');
-        expect(t.signature).toBe('summarize readme.md for me::read_file');
+        // The persisted signature is now the abstract signature (one namespace
+        // with the router/compiler, council decision 2026-08-15); the tool
+        // shape moved to its own diagnostic field.
+        expect(t.signature).toBe(computeAbstractSignature('Summarize   README.md for me').sig);
+        expect(t.signaturePreview).toBe('summarize readme.md for me');
+        expect(t.shape).toBe('read_file');
         expect(t.toolCalls[0]?.actionId).toBe('aid-e2e');
         expect(t.receipts).toEqual([
             { actionId: 'aid-e2e', kind: 'tool_call', status: 'ok' },
@@ -181,7 +187,8 @@ describe('onTraceEnd seam + wireTracePersistence', () => {
 
         expect(persisted.model).toBe('test-model');
         expect(persisted.tokens).toEqual({ prompt: 10, completion: 5 });
-        expect(persisted.signature).toBe('read the config file::');
+        expect(persisted.signature).toBe(computeAbstractSignature('read the config file').sig);
+        expect(persisted.shape).toBe(''); // makeTrace has no tool calls
         expect(persisted.receipts).toEqual([]);
     });
 

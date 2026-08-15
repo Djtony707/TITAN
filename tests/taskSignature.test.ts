@@ -56,6 +56,41 @@ describe('taskSignature extraction', () => {
         const sig = extractTaskSignature('xyzzy flurbo glarp');
         expect(sig.intent).toBe('unknown');
     });
+
+    it('picks the intent whose keyword appears earliest in the text, not the first pattern in array order', () => {
+        // INTENT_PATTERNS order is: deploy, diagnose, fix, configure,
+        // monitor, analyze, build, test, create, update, search, ...
+        // "diagnose" (index 1) sits well before "search" (index 10) in
+        // that array. Under the old array-priority bug, the loop hits the
+        // diagnose pattern first and returns 'diagnose' as soon as it
+        // finds "what's wrong" ANYWHERE in the text — even though
+        // "search" is the keyword that actually appears first, at
+        // position 0. The documented contract (see the extraction
+        // comment above extractTaskSignature) is earliest-match-by-
+        // position, so this must resolve to 'search'.
+        const task = "Search for what's wrong with the auth service";
+        const lower = task.toLowerCase();
+        expect(lower.indexOf('search')).toBe(0);
+        expect(lower.indexOf("what's wrong")).toBeGreaterThan(0);
+
+        const sig = extractTaskSignature(task);
+        expect(sig.intent).toBe('search');
+    });
+
+    it('a second independent case: earlier-array-order pattern loses to an earlier-in-text keyword', () => {
+        // 'deploy' is array index 0 (checked first); 'update' is index 9.
+        // Under the old array-priority bug, the loop hits 'deploy' first,
+        // sees "deploy" matches somewhere in the text, and returns
+        // 'deploy' immediately — even though "Update" is the keyword
+        // that actually appears first in the text (position 0).
+        const task = 'Update the docs, then deploy';
+        const lower = task.toLowerCase();
+        expect(lower.indexOf('update')).toBe(0);
+        expect(lower.indexOf('deploy')).toBeGreaterThan(0);
+
+        const sig = extractTaskSignature(task);
+        expect(sig.intent).toBe('update');
+    });
 });
 
 describe('signTrajectories', () => {

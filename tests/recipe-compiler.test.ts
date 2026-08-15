@@ -23,19 +23,23 @@ describe('computeAbstractSignature (Finding 1)', () => {
         const a = computeAbstractSignature('summarize /home/tony/notes.txt');
         const b = computeAbstractSignature('summarize /tmp/other.md');
 
-        expect(a.sig).toBe('summarize {path}');
-        expect(b.sig).toBe(a.sig);
+        // sig is the sha256 of the abstracted form (council decision 2026-08-15);
+        // the readable abstraction moved to `preview` and never gates matching.
+        expect(a.preview).toBe('summarize {path}');
+        expect(a.sig).toMatch(/^[0-9a-f]{64}$/);
+        expect(b.sig).toBe(a.sig); // same family → same signature
         // The original literals survive as slots, in order, for replay filling.
         expect(a.slots).toEqual([{ type: 'path', placeholder: '{path}', value: '/home/tony/notes.txt' }]);
         expect(b.slots[0]?.value).toBe('/tmp/other.md');
     });
 
     it('abstracts URLs, quoted strings, dates, and numbers', () => {
-        const { sig, slots } = computeAbstractSignature(
+        const { sig, preview, slots } = computeAbstractSignature(
             'Fetch https://example.com/a/b?x=1 and post "hello world" for 2026-08-06 with 3 retries',
         );
 
-        expect(sig).toBe('fetch {url} and post {quoted} for {date} with {num} retries');
+        expect(preview).toBe('fetch {url} and post {quoted} for {date} with {num} retries');
+        expect(sig).toMatch(/^[0-9a-f]{64}$/);
         expect(slots.map(s => s.type)).toEqual(['url', 'quoted', 'date', 'num']);
         expect(slots[0]?.value).toBe('https://example.com/a/b?x=1');
         expect(slots[1]?.value).toBe('"hello world"');
@@ -43,9 +47,10 @@ describe('computeAbstractSignature (Finding 1)', () => {
     });
 
     it('abstracts relative and ~ paths', () => {
-        expect(computeAbstractSignature('open ./src/agent/tracer.ts now').sig).toBe('open {path} now');
-        expect(computeAbstractSignature('open ~/docs/file.md now').sig).toBe('open {path} now');
-        expect(computeAbstractSignature('open ../sibling/x.ts now').sig).toBe('open {path} now');
+        const family = computeAbstractSignature('open ./src/agent/tracer.ts now').sig;
+        expect(computeAbstractSignature('open ./src/agent/tracer.ts now').preview).toBe('open {path} now');
+        expect(computeAbstractSignature('open ~/docs/file.md now').sig).toBe(family);
+        expect(computeAbstractSignature('open ../sibling/x.ts now').sig).toBe(family);
     });
 
     it('zero-false-positive: distinct literals never collapse', () => {
@@ -56,7 +61,7 @@ describe('computeAbstractSignature (Finding 1)', () => {
         // different filename is a different task, never a false family match.
         expect(computeAbstractSignature('open README.md').sig)
             .not.toBe(computeAbstractSignature('open CHANGELOG.md').sig);
-        expect(computeAbstractSignature('open README.md').sig).toBe('open readme.md');
+        expect(computeAbstractSignature('open README.md').preview).toBe('open readme.md');
     });
 
     it('is deterministic and normalizes case/whitespace', () => {
@@ -66,8 +71,9 @@ describe('computeAbstractSignature (Finding 1)', () => {
     });
 
     it('handles empty and entity-free messages', () => {
-        expect(computeAbstractSignature('').sig).toBe('');
-        expect(computeAbstractSignature('hello there').sig).toBe('hello there');
+        expect(computeAbstractSignature('').preview).toBe('');
+        expect(computeAbstractSignature('').sig).toMatch(/^[0-9a-f]{64}$/);
+        expect(computeAbstractSignature('hello there').preview).toBe('hello there');
         expect(computeAbstractSignature('hello there').slots).toEqual([]);
     });
 });
@@ -92,7 +98,11 @@ describe('compileRecipe', () => {
         // A valid v7 Recipe shape.
         expect(recipe.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
         expect(recipe.steps[0]?.prompt).toContain('read_file');
-        expect(recipe.signature).toBe('summarize {path}::read_file');
+        // recipe.signature is the abstract signature (one namespace with the
+        // router), NOT the old 'abstract::toolshape' format.
+        expect(recipe.signature).toBe(computeAbstractSignature(trace.message).sig);
+        expect(recipe.signaturePreview).toBe('summarize {path}');
+        expect(recipe.slotTypes).toEqual(['path']);
         expect(recipe.state).toBe('candidate');
         expect(recipe.tier).toBe(2);
         expect(recipe.sourceTraceIds).toEqual(['tr123456']);

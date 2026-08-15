@@ -24,6 +24,7 @@
 import { getCompileQueue, type TaskCluster } from './recognizeCluster.js';
 import { readTraces, type PersistedTrace } from './traceStore.js';
 import { compileRecipe } from './recipeCompiler.js';
+import { computeAbstractSignature } from './recipeSignature.js';
 import { registerRecipe, promoteToShadow, listEntries, type RegistryEntry } from './recipeRegistry.js';
 import { shouldCompile, shouldPromote } from './v8Gates.js';
 import { extractTaskSignature } from './taskSignature.js';
@@ -84,19 +85,24 @@ export function runCompilePipeline(config: TitanConfig): CompileResult {
             continue;
         }
 
-        // Skip if we already have a recipe for this signature.
-        const clusterSig = cluster.signature.signature;
-        if (existing.has(clusterSig)) {
-            result.skipped++;
-            result.details.push({ cluster: cluster.signature.intent, action: 'skipped: already registered' });
-            continue;
-        }
-
         // Find a source trace that matches the cluster's tool sequence.
         const trace = findMatchingTrace(traces, cluster);
         if (!trace) {
             result.skipped++;
             result.details.push({ cluster: cluster.signature.intent, action: 'skipped: no matching trace' });
+            continue;
+        }
+
+        // Skip if we already have a recipe for this ABSTRACT signature — the
+        // one namespace shared with the compiler and router (audit 2026-08-15:
+        // the old check compared the cluster's taskSignature format against
+        // recipe signatures in a different format, so it never matched and
+        // every run re-compiled the same family). Recomputed from the trace
+        // message so old-format traces on disk dedupe correctly too.
+        const traceAbstractSig = computeAbstractSignature(trace.message).sig;
+        if (existing.has(traceAbstractSig)) {
+            result.skipped++;
+            result.details.push({ cluster: cluster.signature.intent, action: 'skipped: already registered' });
             continue;
         }
 

@@ -1885,9 +1885,13 @@ export async function runAgentLoop(ctx: LoopContext): Promise<LoopResult> {
             try {
                 const { getSubdirTracker } = await import('./subdirHints.js');
                 const tracker = getSubdirTracker(ctx.sessionId);
-                for (let i = 0; i < toolResults.length; i++) {
-                    const tr = toolResults[i];
-                    const tc = pendingToolCalls[i];
+                // Pair by tool-call id, not array index: partitionToolCalls()
+                // dedupes identical (name,args) calls before execution, so
+                // toolResults can be shorter than (and misaligned with)
+                // pendingToolCalls. Every ToolResult carries the id of the
+                // call it answers in tr.toolCallId — match on that instead.
+                for (const tr of toolResults) {
+                    const tc = pendingToolCalls.find(c => c.id === tr.toolCallId);
                     if (!tc) continue;
                     let args: Record<string, unknown> = {};
                     try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* non-fatal */ }

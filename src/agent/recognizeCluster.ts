@@ -139,21 +139,26 @@ function groupBySignature(signed: SignedTrajectory[]): Map<string, SignedTraject
  */
 function scoreCluster(group: SignedTrajectory[]): TaskCluster {
     const frequency = group.length;
-    const successCount = group.filter(t => t.success).length;
+    const successes = group.filter(t => t.success);
+    const successCount = successes.length;
     const successRate = successCount / frequency;
-    const stability = computeStability(group.filter(t => t.success));
+    const stability = computeStability(successes);
     const score = frequency * stability * successRate;
-    
-    // Find the dominant tool sequence
+
+    // Find the dominant tool sequence. Computed over SUCCESSFUL trajectories
+    // only — same population as outcomeStability above. If this counted
+    // the whole group (successes + failures), a sequence that mostly fails
+    // could still "win" by raw occurrence count and get published as the
+    // cluster's recommended workflow.
     const seqCounts = new Map<string, string[]>();
-    for (const t of group) {
+    for (const t of successes) {
         const key = t.toolSequence.join(' → ');
         if (!seqCounts.has(key)) seqCounts.set(key, t.toolSequence);
     }
     let dominantSeq: string[] = [];
     let maxCount = 0;
     for (const [key, seq] of seqCounts) {
-        const count = group.filter(t => t.toolSequence.join(' → ') === key).length;
+        const count = successes.filter(t => t.toolSequence.join(' → ') === key).length;
         if (count > maxCount) { maxCount = count; dominantSeq = seq; }
     }
     
@@ -193,8 +198,16 @@ export function runClustering(
         return { clusters: [], trajectoryCount: 0 };
     }
     
+    // INVARIANT: a cluster candidate must have made at least one tool call.
+    // Tool-less chat trajectories all share toolSequence [], which makes
+    // them look like a single "cluster" with stability=1.0 and a perfect
+    // successRate — a bogus compile candidate with nothing to compile
+    // (dominantToolSequence: []). Excluded here, before grouping, so no
+    // empty-toolSequence cluster can ever reach the scoring/queue stage.
+    const eligible = trajectories.filter(t => t.toolSequence.length > 0);
+
     // Convert to the shape signTrajectories expects
-    const shaped = trajectories.map(t => ({
+    const shaped = eligible.map(t => ({
         id: t.id,
         task: t.task,
         success: t.success,

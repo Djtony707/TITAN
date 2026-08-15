@@ -47,8 +47,19 @@ export interface TraceReceiptJoin {
 
 /** A Trace as persisted on disk: the tracer's record plus v8 metadata. */
 export interface PersistedTrace extends Trace {
-    /** Task signature the Recognizer clusters on (see computeSignature). */
+    /**
+     * The ABSTRACT task signature (recipeSignature.computeAbstractSignature):
+     * sha256 of the slot-abstracted message. This is the ONE signature
+     * namespace shared by the compiler, router, and shadow executor
+     * (council decision — three incompatible namespaces made the whole
+     * self-compiling loop inert; see audit 2026-08-15).
+     */
     signature?: string;
+    /** Human-readable signature diagnostic. NEVER used for matching. */
+    signaturePreview?: string;
+    /** Ordered tool-name shape, e.g. "read_file>write_file". Diagnostic +
+     *  Recognizer input; NOT part of the matching signature. */
+    shape?: string;
     /** Receipt outcomes joined by action_id, parallel to toolCalls. */
     receipts?: TraceReceiptJoin[];
 }
@@ -92,16 +103,12 @@ function warnTraceError(operation: 'read' | 'write', err: unknown): void {
 // ── Public API ───────────────────────────────────────────────────────────
 
 /**
- * The task signature: a stable join of (normalized intent prefix + tool
- * sequence shape). This is what the Recognizer clusters on. Keeping it on
- * the persisted record makes the trace self-describing on disk — the
- * nightly job never needs to re-read the raw message.
- *
- * Normalization: lowercase + collapse whitespace on the first 120 chars of
- * the user message (intent), then append the ordered list of tool names.
- * Args are deliberately NOT part of the signature — they are the slot-fill
- * variables, not the shape of the task. (Step 2 upgrades this to the
- * slot-abstracted signature in recipeCompiler.computeAbstractSignature.)
+ * @deprecated Legacy v8-alpha signature (`intent-prefix::tool-shape`). It was
+ * never comparable with the router's abstract signature — the namespace
+ * schism that left the self-compiling loop inert (audit 2026-08-15). Kept
+ * only so external readers of old trace files can interpret the historical
+ * field. New traces persist `computeAbstractSignature(message).sig` plus a
+ * separate diagnostic `shape`.
  */
 export function computeSignature(message: string, toolCalls: Trace['toolCalls']): string {
     const intent = (message || '').slice(0, 120).toLowerCase().replace(/\s+/g, ' ').trim();
@@ -186,9 +193,12 @@ export function joinReceipts(trace: Trace): TraceReceiptJoin[] {
  * the v8 signature and receipt join.
  */
 export function toPersistedTrace(trace: Trace): PersistedTrace {
+    const { sig, preview } = computeAbstractSignature(trace.message);
     return {
         ...trace,
-        signature: computeSignature(trace.message, trace.toolCalls),
+        signature: sig,
+        signaturePreview: preview,
+        shape: trace.toolCalls.map(tc => tc.tool).join('>'),
         receipts: joinReceipts(trace),
     };
 }
