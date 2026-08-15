@@ -17,6 +17,7 @@ import { join } from 'path';
 import { TITAN_HOME } from '../utils/constants.js';
 import { assertCompanyRuntime } from './compat.js';
 import { mintCompany, STARTER_CREW, type MintedCompany } from './crew.js';
+import { companyRoster } from './hiring.js';
 import { loadAgentKeys, assertValidAgentId } from './keys.js';
 import { LIMITS, assertLen } from './wire.js';
 import { loadConfig } from '../config/config.js';
@@ -68,9 +69,11 @@ async function buildState(): Promise<State> {
         // The substrate derives $TITAN_HOME/system.db and migrates a legacy
         // $TITAN_HOME/company/company.db before the first append. Company
         // owns keys/memory under company/; the signed log is substrate.
-        const log = new CompanyLog(TITAN_HOME, keysDir, queueEnabled ? { queue: true } : {});
-        const crew = new Map(log.read({ kind: 'agent.minted', limit: 100 })
-            .map(e => [String(e.payload.agentId ?? ''), String(e.payload.charter ?? '')]));
+        // Slice 7: brain mode is always on for the service log — the brain
+        // kinds are additive, their validator only fires on brain kinds, and
+        // the hire/fire + pooled-memory surfaces need them available.
+        const log = new CompanyLog(TITAN_HOME, keysDir, queueEnabled ? { queue: true, brain: true } : { brain: true });
+        const crew = new Map(companyRoster(log).map(m => [m.agentId, m.charter]));
         const candidate: State = { log, keysDir, memoryDir };
         logger.info(COMPONENT, `Company log open (queue ${queueEnabled ? 'ON' : 'off'})`);
 
@@ -79,7 +82,12 @@ async function buildState(): Promise<State> {
             const { CompanyDispatch, productionRunner, productionReviewer } = await import('./dispatch.js');
             candidate.queueDispatch = new CompanyDispatch(log, keysDir, memoryDir, {
                 maxAttempts: queueCfg.maxAttempts,
-                charterOf: agentId => crew.get(agentId) ?? '',
+                // LIVE lookups (slice 7): a hire after boot must be
+                // dispatchable with its real charter/model — a boot-time
+                // snapshot would hand every new hire an empty charter.
+                charterOf: agentId => crew.get(agentId)
+                    ?? companyRoster(log).find(m => m.agentId === agentId)?.charter ?? '',
+                modelOf: agentId => companyRoster(log).find(m => m.agentId === agentId)?.model,
             }, productionRunner, productionReviewer);
             candidate.queueDispatch.recover(); // fold-derived crash reconciliation (v5 §4)
             // The watchman is an infrastructure principal like 'user', not
@@ -156,7 +164,12 @@ export interface CompanyStatus {
     exists: boolean;
     name?: string;
     mission?: string;
-    agents: Array<{ agentId: string; displayName: string; role: string; charter: string }>;
+    agents: Array<{
+        agentId: string; displayName: string; role: string; charter: string;
+        /** Slice 7: per-agent runner choice, present on hired members. */
+        harness?: string; model?: string;
+        source?: 'minted' | 'hired';
+    }>;
     eventCount: number;
 }
 
@@ -165,12 +178,11 @@ export async function getCompanyStatus(): Promise<CompanyStatus> {
     const { log } = await ensure();
     const created = log.read({ kind: 'company.created', limit: 1 })[0];
     if (!created) return { exists: false, agents: [], eventCount: log.count() };
-    const agents = log.read({ kind: 'agent.minted', limit: 100 }).map(e => ({
-        agentId: String(e.payload.agentId ?? ''),
-        displayName: String(e.payload.displayName ?? e.payload.agentId ?? ''),
-        role: String(e.payload.role ?? ''),
-        charter: String(e.payload.charter ?? ''),
-    }));
+    // Slice 7: the dispatchable set is the MERGED roster — founding crew
+    // (agent.minted) plus live hires (agent.hired minus agent.retired) —
+    // so a hire is immediately delegable and a retirement immediately
+    // stops delegation, with no second source of truth.
+    const agents = companyRoster(log);
     return {
         exists: true,
         name: String(created.payload.name ?? ''),

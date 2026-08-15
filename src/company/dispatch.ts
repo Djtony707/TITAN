@@ -57,6 +57,8 @@ export interface TurnRequest {
     spec: string;
     attempt: number;
     memoryContext: string;
+    /** Slice 7: the hired agent's model choice (roster record). */
+    model?: string;
 }
 
 export interface TurnOutcome {
@@ -98,6 +100,9 @@ export const productionRunner: TurnRunner = async (req) => {
             (req.attempt > 1 ? `This is attempt ${req.attempt} — a previous attempt did not complete.\n` : '') +
             `Complete the delegated task and reply with the finished result.`,
         maxRounds: 6,
+        // Slice 7: honor the hired agent's model choice; absent → the
+        // existing tier resolution (v7 behavior, byte-identical flag-off).
+        ...(req.model ? { model: req.model } : {}),
         tags: ['company', 'slice2'],
     });
     return {
@@ -188,6 +193,9 @@ export const productionReviewer: Reviewer = async (req) => {
 export interface DispatchConfig {
     maxAttempts?: number;
     charterOf: (agentId: string) => string;
+    /** Slice 7: per-agent model choice from the hired roster record.
+     *  Undefined → the runner's default tier resolution (v7 behavior). */
+    modelOf?: (agentId: string) => string | undefined;
 }
 
 /** Typed telemetry-bearing error for reviewer infrastructure failures.
@@ -493,6 +501,7 @@ export class CompanyDispatch {
                 charter: this.config.charterOf(f.owner),
                 spec, attempt,
                 memoryContext: renderMemoryForPrompt(this.memoryDir, f.owner),
+                ...(this.config.modelOf?.(f.owner) ? { model: this.config.modelOf(f.owner) } : {}),
             });
         } catch (err) {
             outcome = {
