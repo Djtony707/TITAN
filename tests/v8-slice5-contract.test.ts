@@ -281,7 +281,7 @@ describe('Honey blocker 3: equivalence is computed, not caller-supplied', () => 
         // a boolean would not satisfy the type at compile time.
         const result = recordShadowComparison(recipe.id, { epoch: entry.recipe.stats.shadowEpoch, comparisonId: nextComparisonId(), ...matchingRuns() }, { configOverride: cfg() });
         expect(result.equivalent).toBe(true);
-        expect(result.comparatorId).toBe('structural-v1');
+        expect(result.comparatorId).toBe('normalized-text-v1'); // selected per-recipe (slice 7); still from the CLOSED registry
         expect(result.comparatorVersion).toBe(1);
         expect(result.recipeOutputHash).toBeDefined();
         expect(result.frontierOutputHash).toBeDefined();
@@ -311,7 +311,7 @@ describe('Honey blocker 3: equivalence is computed, not caller-supplied', () => 
         expect(record.comparisonId).toBe('rec-1');
         expect(record.shadowEpoch).toBe(entry.recipe.stats.shadowEpoch);
         expect(record.equivalent).toBe(true);
-        expect(record.comparatorId).toBe('structural-v1');
+        expect(record.comparatorId).toBe('normalized-text-v1'); // selected per-recipe (slice 7); still from the CLOSED registry
         expect(record.comparatorVersion).toBe(1);
         expect(record.recipeOutputHash).toBe(record.frontierOutputHash); // matching content → same hash
         expect(record.createdAt).toBeTruthy();

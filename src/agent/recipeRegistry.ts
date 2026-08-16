@@ -144,6 +144,56 @@ function structuralCompare(runs: ShadowRunOutput): boolean {
 
 registerComparator(DEFAULT_COMPARATOR_ID, 1, structuralCompare);
 
+// ── Slice-7 comparators (ported from Forge's WIP, kept CLOSED) ───────────
+// Registered internally like structural-v1 — no public injection surface.
+// Every record still persists the comparator id+version it was judged by.
+
+function renderRuns(runs: ShadowRunOutput): { recipe: string; frontier: string } {
+    const recipe = runs.recipe.map(r => r.content).join('\n');
+    const frontier = typeof runs.frontier === 'string'
+        ? runs.frontier
+        : runs.frontier.map(r => r.content).join('\n');
+    return { recipe, frontier };
+}
+
+function normalizeAnswer(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Equality after case/punctuation/whitespace normalization. Still equality —
+ *  formatting drift promotes, different content never does. */
+function normalizedTextCompare(runs: ShadowRunOutput): boolean {
+    const { recipe, frontier } = renderRuns(runs);
+    return normalizeAnswer(recipe) === normalizeAnswer(frontier);
+}
+
+/** Order-insensitive line-set equality — for list/search-shaped outputs
+ *  where result ORDER is presentation, not semantics. */
+function lineSetCompare(runs: ShadowRunOutput): boolean {
+    const { recipe, frontier } = renderRuns(runs);
+    const a = new Set(recipe.split('\n').map(normalizeAnswer).filter(Boolean));
+    const b = new Set(frontier.split('\n').map(normalizeAnswer).filter(Boolean));
+    if (a.size !== b.size) return false;
+    for (const line of a) if (!b.has(line)) return false;
+    return true;
+}
+
+const NORMALIZED_TEXT_ID = 'normalized-text-v1';
+const LINE_SET_ID = 'line-set-v1';
+registerComparator(NORMALIZED_TEXT_ID, 1, normalizedTextCompare);
+registerComparator(LINE_SET_ID, 1, lineSetCompare);
+
+/** Deterministic comparator selection from the RECIPE's own metadata (the
+ *  stored signaturePreview — never caller input): list/search/find-shaped
+ *  tasks judge by line-set; everything else by normalized text. structural-v1
+ *  remains registered as the strict fallback when no preview exists. */
+function comparatorFor(recipe: CompiledRecipe): ComparatorEntry {
+    const preview = recipe.signaturePreview ?? '';
+    if (!preview) return COMPARATOR_REGISTRY.get(DEFAULT_COMPARATOR_ID)!;
+    if (/\b(list|search|find)\b/.test(preview)) return COMPARATOR_REGISTRY.get(LINE_SET_ID)!;
+    return COMPARATOR_REGISTRY.get(NORMALIZED_TEXT_ID)!;
+}
+
 /**
  * A persisted record of one shadow comparison. The registry returns this
  * instead of a bare boolean so the evidence trail identifies which trusted
@@ -494,7 +544,10 @@ export function recordShadowComparison(
         throw new Error(`RecipeRegistry: shadow comparison ${evidence.comparisonId} rejected — duplicate comparisonId`);
     }
     // Select comparator from closed registry (internal, not caller-injected).
-    const comparatorEntry = COMPARATOR_REGISTRY.get(DEFAULT_COMPARATOR_ID)!;
+    // Slice 7: deterministic comparator selection from the recipe's own
+    // stored metadata (closed registry — the record persists which id+version
+    // judged it, so the evidence trail stays attributable).
+    const comparatorEntry = comparatorFor(entry.recipe);
     const runs: ShadowRunOutput = { recipe: evidence.recipe, frontier: evidence.frontier };
     const equivalent = comparatorEntry.fn(runs);
     // Build the persisted record.
