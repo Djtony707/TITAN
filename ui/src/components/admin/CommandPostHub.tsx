@@ -4,7 +4,8 @@ import {
   ChevronRight, AlertTriangle, CheckCircle2, Clock, XCircle,
   MessageSquare, Send, StopCircle, Plus, Shield, Eye,
   BarChart3, Briefcase, Play, Pause, Search, Trash2, Scale,
-  Mail, Target, FileText, Terminal, RefreshCw,
+  Mail, Target, FileText, Terminal, RefreshCw, ListOrdered,
+  PartyPopper,
 } from 'lucide-react';
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
@@ -1483,7 +1484,7 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals';
+type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals' | 'Company' | 'Queue' | 'Pulse';
 
 const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof Shield }[] }[] = [
   {
@@ -1508,6 +1509,9 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof 
       { id: 'Issues', label: 'Issues', icon: MessageSquare },
       { id: 'Approvals', label: 'Approvals', icon: Shield },
       { id: 'Org Chart', label: 'Org Chart', icon: GitBranch },
+      { id: 'Company', label: 'Company', icon: Building2 },
+      { id: 'Queue', label: 'Queue', icon: ListOrdered },
+      { id: 'Pulse', label: 'Pulse', icon: PartyPopper },
       { id: 'Agents', label: 'Agents', icon: Users },
       { id: 'Files', label: 'Files', icon: FileText },
       { id: 'Debates', label: 'Debates', icon: Scale },
@@ -1534,6 +1538,9 @@ const CPSocialLazy = lazy(() => import('@/components/command-post/CPSocial'));
 const CPDashboardLazy = lazy(() => import('@/components/command-post/CPDashboard'));
 const CPGoalsLazy = lazy(() => import('@/components/command-post/CPGoals'));
 const CPAgentsLazy = lazy(() => import('@/components/command-post/CPAgents'));
+const CompanyRoomLazy = lazy(() => import('@/components/command-post/CompanyRoom'));
+const CompanyQueueLazy = lazy(() => import('@/components/command-post/CompanyQueue'));
+const CompanyPulseLazy = lazy(() => import('@/components/command-post/CompanyPulse'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
@@ -1546,15 +1553,23 @@ export default function CommandPostHub() {
   const [activity, setActivity] = useState<CPActivityEntry[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<RegisteredAgent | null>(null);
+  const [companyEnabled, setCompanyEnabled] = useState(false);
+  const [queueEnabled, setQueueEnabled] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [cpData, runsData] = await Promise.allSettled([
+      const [cpData, runsData, cfgRes] = await Promise.allSettled([
         getCommandPostDashboard(),
         getCPRuns(),
+        apiFetch('/api/config').then(r => r.json()),
       ]);
       if (cpData.status === 'fulfilled') { setDashboard(cpData.value); setActivity(cpData.value.recentActivity || []); }
       if (runsData.status === 'fulfilled') setRuns(runsData.value);
+      if (cfgRes.status === 'fulfilled') {
+        const cfg = cfgRes.value as { company?: { enabled?: boolean; queue?: { enabled?: boolean } } };
+        setCompanyEnabled(Boolean(cfg.company?.enabled));
+        setQueueEnabled(Boolean(cfg.company?.queue?.enabled));
+      }
       setError(null);
     } catch (err) { setError((err as Error).message); }
     setLoading(false);
@@ -1597,7 +1612,11 @@ export default function CommandPostHub() {
   if (error) return <div className="flex items-center justify-center h-full"><div className="text-center"><AlertTriangle className="mx-auto mb-3 text-warning" size={32} /><p className="text-sm text-text-secondary mb-4">{error}</p><button onClick={refresh} className="px-4 py-2 text-sm bg-bg-tertiary rounded-lg hover:bg-border text-text-secondary transition-colors">Retry</button></div></div>;
 
   const d = dashboard ?? { agents: [], totalAgents: 0, activeAgents: 0, activeCheckouts: 0, budgetUtilization: 0, recentActivity: [], checkouts: [], budgets: [], goalTree: [], companies: [] } as CommandPostDashboard;
-  const flatTabs = TAB_GROUPS.flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })));
+  const flatTabs = TAB_GROUPS
+    .flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })))
+    .filter(t => t.id !== 'Company' || companyEnabled)
+    .filter(t => t.id !== 'Queue' || (companyEnabled && queueEnabled))
+    .filter(t => t.id !== 'Pulse' || companyEnabled);
 
   const TabContent = () => {
     switch (tab) {
@@ -1610,6 +1629,9 @@ export default function CommandPostHub() {
       case 'Issues': return <IssuesTab agents={d.agents} />;
       case 'Approvals': return <ApprovalsTab />;
       case 'Org Chart': return <OrgChartTab agents={d.agents} />;
+      case 'Company': return <Suspense fallback={<TabFallback label="company room" />}><CompanyRoomLazy /></Suspense>;
+      case 'Queue': return <Suspense fallback={<TabFallback label="work queue" />}><CompanyQueueLazy /></Suspense>;
+      case 'Pulse': return <Suspense fallback={<TabFallback label="team pulse" />}><CompanyPulseLazy /></Suspense>;
       case 'Agents': return <Suspense fallback={<TabFallback label="agents" />}><CPAgentsLazy /></Suspense>;
       case 'Files': return <Suspense fallback={<TabFallback label="files" />}><CPFilesLazy /></Suspense>;
       case 'Debates': return <DebatesTab />;

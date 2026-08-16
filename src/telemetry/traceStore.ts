@@ -35,6 +35,14 @@ export interface TraceSpan {
     completionTokens: number;
     costUsd: number;
     ok: boolean;
+    // v8 Slice 3 — RECORD-span join keys and role/exit metadata.
+    actionId?: string;
+    taskRef?: string;
+    attempt?: number;
+    agentId?: string;
+    role?: 'worker' | 'reviewer' | 'main';
+    usageMeasured?: boolean;
+    exit?: 'completed' | 'provider-error' | 'depth-limit' | 'concurrency-limit' | 'timeout' | 'error' | 'unknown';
 }
 
 function titanHome(): string {
@@ -43,6 +51,8 @@ function titanHome(): string {
     return join(homedir(), '.titan');
 }
 function spansPath(): string { return join(titanHome(), 'traces', 'spans.jsonl'); }
+/** v8 Slice 3 — append-only record trace sink for audit/replay joins. */
+function recordSpansPath(): string { return join(titanHome(), 'traces', 'record', 'spans.jsonl'); }
 
 let _seq = 0;
 function nextId(startedAt: string): string {
@@ -50,6 +60,37 @@ function nextId(startedAt: string): string {
     // in some contexts): the caller's ISO start + a monotonic counter.
     _seq = (_seq + 1) % 1_000_000;
     return `sp_${startedAt.replace(/[^0-9]/g, '').slice(0, 17)}_${_seq.toString(36)}`;
+}
+
+/** Append a span to the v8 Slice 3 record sink. Append-only; the legacy
+ *  spans.jsonl is never touched. Best-effort.
+ *
+ *  Self-trims to MAX_SPANS, mirroring the legacy sink's read-side trim
+ *  in listSpans() below — but applied here on the WRITE path too, since
+ *  the record sink is only read by an on-demand gateway route
+ *  (routes/record.ts) that may go a long time between calls. Relying
+ *  solely on a read-side trim would let the file grow unbounded between
+ *  those reads. */
+export function recordSpanRecord(span: Omit<TraceSpan, 'id'>): TraceSpan | null {
+    const full: TraceSpan = { ...span, id: nextId(span.startedAt) };
+    try {
+        const path = recordSpansPath();
+        mkdirSync(join(path, '..'), { recursive: true });
+        let existingLines: string[] = [];
+        if (existsSync(path)) {
+            try { existingLines = readFileSync(path, 'utf-8').split('\n').filter(Boolean); } catch { /* treat as empty */ }
+        }
+        if (existingLines.length + 1 > MAX_SPANS) {
+            const trimmed = [...existingLines, JSON.stringify(full)].slice(-MAX_SPANS);
+            writeFileSync(path, trimmed.join('\n') + '\n', 'utf-8');
+        } else {
+            appendFileSync(path, JSON.stringify(full) + '\n', 'utf-8');
+        }
+        return full;
+    } catch (e) {
+        logger.debug(COMPONENT, `Failed to record span to record sink: ${(e as Error).message}`);
+        return null;
+    }
 }
 
 /** Append a span. Best-effort — never throws into the agent path. */
@@ -151,9 +192,37 @@ export function toOTel(spans: TraceSpan[]): Record<string, unknown> {
     };
 }
 
-/** Test helper. */
+/** Read record spans back (newest first). Self-trims to MAX_SPANS like
+ *  listSpans() — the write-side trim in recordSpanRecord() only guards
+ *  spans appended after this fix landed, so a pre-existing oversized
+ *  file still needs to be caught (and shrunk) here on read. */
+export function listRecordSpans(opts: { sessionId?: string; limit?: number } = {}): TraceSpan[] {
+    const path = recordSpansPath();
+    if (!existsSync(path)) return [];
+    let lines: string[];
+    try { lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean); } catch { return []; }
+    // self-trim if the file grew past the cap
+    if (lines.length > MAX_SPANS) {
+        const trimmed = lines.slice(-MAX_SPANS);
+        try { writeFileSync(path, trimmed.join('\n') + '\n', 'utf-8'); } catch { /* best effort */ }
+        lines = trimmed;
+    }
+    const spans: TraceSpan[] = [];
+    for (const line of lines) {
+        try { spans.push(JSON.parse(line)); } catch { /* skip corrupt line */ }
+    }
+    spans.reverse();
+    const filtered = opts.sessionId ? spans.filter((s) => s.sessionId === opts.sessionId) : spans;
+    return opts.limit ? filtered.slice(0, opts.limit) : filtered;
+}
+
+/** Test helpers. */
 export function __resetTracesForTests(): void {
     const path = spansPath();
     if (existsSync(path)) { try { unlinkSync(path); } catch { /* fine */ } }
     _seq = 0;
+}
+export function __resetRecordTracesForTests(): void {
+    const path = recordSpansPath();
+    if (existsSync(path)) { try { unlinkSync(path); } catch { /* fine */ } }
 }

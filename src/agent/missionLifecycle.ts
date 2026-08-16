@@ -33,6 +33,7 @@ import {
     raiseQuestion,
     recordCost,
     ensureMember,
+    ensureSystemMember,
     getMission,
     getMissionByGoalId,
     listMissions,
@@ -189,6 +190,35 @@ function ensureGlobalBusBridge(): void {
         const mission = getMissionByGoalId(goalId);
         if (!mission) return;
         const agentId = (ev.agentId ?? ev.agentName ?? '').toLowerCase();
+        // v6.1.0-alpha.42 (Bug #4) — subtask_phase events from goalDriver
+        // carry no agentId/agentName (they're driver-level, not specialist-
+        // level). Handle them BEFORE the agentId guard so they don't exit
+        // early. The driver is a system-level actor, not a specialist.
+        if (ev.type === 'subtask_phase') {
+            try {
+                const phase = typeof data.phase === 'string' ? data.phase : '';
+                const note = typeof data.note === 'string' ? data.note : '';
+                if (!phase) return;
+                const icon = phaseIcon(phase);
+                const activity = phaseLabel(phase);
+                if (icon && activity) {
+                    // Ensure a 'driver' hidden system member exists so the
+                    // activity sticky has a home on the team. Unlike
+                    // ensureMember, ensureSystemMember does NOT post a
+                    // "joined the team" chat message, emit team_formed,
+                    // or appear as a visible agent desk item on the canvas.
+                    ensureSystemMember(mission.id, 'driver');
+                    appendMemberActivity(mission.id, 'driver', {
+                        icon,
+                        activity,
+                        detail: note.slice(0, 100) || undefined,
+                    });
+                }
+            } catch (err) {
+                logger.debug(COMPONENT, `subtask_phase bridge threw for ${mission.id}: ${(err as Error).message}`);
+            }
+            return;
+        }
         if (!agentId) return;
         try {
             switch (ev.type) {
@@ -1166,4 +1196,42 @@ function shortenActivity(s: string | undefined): string | undefined {
     const trimmed = s.trim();
     if (trimmed.length <= 240) return trimmed;
     return trimmed.slice(0, 237).trimEnd() + '…';
+}
+
+/**
+ * v6.1.0-alpha.42 (Bug #4) — Map goalDriver phase transitions to
+ * activity-sticky icons/labels so the canvas updates in real time.
+ */
+function phaseIcon(phase: string): string | null {
+    switch (phase) {
+        case 'planning': return '🧭';
+        case 'delegating': return '📤';
+        case 'observing': return '👀';
+        case 'verifying': return '🔍';
+        case 'iterating': return '🔄';
+        case 'reporting': return '📊';
+        case 'blocked': return '🚫';
+        case 'escalated': return '⚠️';
+        case 'done': return '✅';
+        case 'failed': return '❌';
+        case 'cancelled': return '⊘';
+        default: return null;
+    }
+}
+
+function phaseLabel(phase: string): string | null {
+    switch (phase) {
+        case 'planning': return 'planning subtasks';
+        case 'delegating': return 'dispatched a specialist';
+        case 'observing': return 'waiting for result';
+        case 'verifying': return 'verifying output';
+        case 'iterating': return 'retrying with fallback';
+        case 'reporting': return 'writing summary';
+        case 'blocked': return 'needs human input';
+        case 'escalated': return 'infrastructure issue';
+        case 'done': return 'subtask completed';
+        case 'failed': return 'subtask failed';
+        case 'cancelled': return 'goal cancelled';
+        default: return null;
+    }
 }

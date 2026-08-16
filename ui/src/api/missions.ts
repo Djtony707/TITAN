@@ -29,6 +29,10 @@ export interface MissionMember {
    *  "read a page", "wrote a file"). The desk renders these as live
    *  sticky notes near the agent that produced them. */
   activityLog?: Array<{ at: string; icon: string; activity: string; detail?: string }>;
+  /** v6.1.0-alpha.42 (Bug #4) — hidden system members (e.g. goal driver)
+   *  are filtered from agent desk items, team count, and team-active
+   *  checks but still feed activity stickies. */
+  hidden?: boolean;
 }
 
 export type MissionMessage =
@@ -160,6 +164,16 @@ export function setMissionStatus(id: string, status: 'paused' | 'working'): Prom
     method: 'POST',
     body: JSON.stringify({ status }),
   });
+}
+
+/**
+ * v6.1.0-alpha.42 — Recovery nudge (Bug #5). Forces a driver tick on a
+ * stalled or blocked mission. Distinct from the chat-level nudge in
+ * AgentMenu which sends a @mention message; this endpoint bypasses the
+ * message queue and directly re-runs the goal driver's tick cycle.
+ */
+export function nudgeMission(id: string): Promise<{ ok: boolean; goalId: string; phase: string }> {
+  return json(`/api/missions/${id}/nudge`, { method: 'POST' });
 }
 
 /** v6.1.0-alpha.19 — per-agent model override. Pass `null` to clear. */

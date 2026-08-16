@@ -10,6 +10,8 @@ import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { loadConfig, saveConfig } from '../../config/config.js';
 
+// Recognize (v8 Slice 4) — dynamically required inside gated handler
+
 // Autopilot
 import {
   initAutopilot,
@@ -68,6 +70,22 @@ export function createLifecycleRouter(): Router {
       res.json(result);
     } catch (e) {
       logger.error(COMPONENT, `Endpoint error: ${(e as Error).message}`); res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // v8 Slice 4: Compile Queue (read-only, gated behind selfCompiling.enabled)
+  router.get('/compile-queue', async (_req, res) => {
+    const cfg = loadConfig() as Record<string, unknown>;
+    const selfCompiling = cfg.selfCompiling as { enabled?: boolean } | undefined;
+    if (!selfCompiling?.enabled) { res.status(404).json({ error: 'Not found' }); return; }
+    try {
+      const { getCompileQueue, getClusterStats } = await import('../../agent/recognizeCluster.js');
+      const clusters = getCompileQueue();
+      const stats = getClusterStats();
+      res.json({ clusters, stats });
+    } catch (e) {
+      logger.error(COMPONENT, `Compile queue error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Failed to load compile queue' });
     }
   });
 

@@ -1,6 +1,6 @@
 [//]: # "npm-text-start"
 
-> **TITAN** — A local-first AI agent framework that runs on your hardware, with your models, under your control. Spawn a team of specialists around a goal, watch them work live — step-by-step, with real file diffs — and stay in the loop without giving up control. `npm i -g titan-agent`
+> **TITAN** — A local-first AI agent framework that runs on your hardware, with your models, under your control. v8 makes it a **company**: hire specialists (each with its own model and harness), give them a shared brain, watch them earn autonomy — and stay in the loop without giving up control. `npm i -g titan-agent`
 > [//]: # (npm-text-end)
 
 <div align="center">
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <strong>The local-first AI agent framework that teaches itself, mixes councils of models, plays well with other agents — and lets you watch it work.</strong>
+  <strong>The local-first AI agent framework where your agents are a company — shared memory, real hiring, earned autonomy — and you can watch them work.</strong>
   <br><small>Your hardware. Your models. Your control. Built in TypeScript, MIT-licensed, 40K+ lifetime installs.</small>
 </p>
 
@@ -37,7 +37,7 @@
   <img src="https://img.shields.io/badge/channels-19-orange" alt="19 Channels"/>
   <img src="https://img.shields.io/badge/skills-~143%20loaded-teal" alt="~143 skills loaded"/>
   <img src="https://img.shields.io/badge/WCAG-2.1%20AA-blueviolet" alt="WCAG 2.1 AA"/>
-  <img src="https://img.shields.io/badge/tests-8000%2B-green" alt="8000+ tests"/>
+  <img src="https://img.shields.io/badge/tests-8700%2B-green" alt="8700+ tests"/>
 </p>
 
 <p align="center">
@@ -49,6 +49,84 @@
 ---
 
 <a id="whats-new"></a>
+
+<p align="center">
+  <img src="assets/readme/v8-hero.svg" alt="TITAN v8 — The Company Release. Your crew of AI specialists: shared memory, real hiring, earned autonomy." width="880"/>
+</p>
+
+## What's new in v8.0.0 "The Company" — Your Agents Become a Team
+
+**The biggest release in TITAN's history.** Until now, agents were tools you ran.
+In v8 they're *teammates you work with* — a real little company with named
+specialists, a shared brain, celebrated wins, and autonomy that has to be earned.
+And because it's TITAN: every event is cryptographically signed, everything runs
+on your hardware, and **the whole layer is opt-in** — flag it off and v8 behaves
+byte-for-byte like v7.
+
+### 🏢 Found your company in 90 seconds
+
+<p align="center">
+  <img src="assets/readme/v8-journey.svg" alt="Animated terminal: titan company create founds Moonlight Labs with three teammates; hire adds Quill with her own model and harness; status shows the roster; huddle prints the daily standup." width="880"/>
+</p>
+
+Every hire is a **real identity** — its own ed25519 keypair, its own attributed
+memory stream, and (new in v8) **its own model and harness**. Want a writer on
+Claude, a researcher on your local Qwen, and a builder on Codex? That's just
+three `--model` flags. Prefer to delegate the org chart entirely? The CEO
+principal can run hiring for you.
+
+```bash
+titan company create --name "Moonlight Labs"      # 3 founding teammates, instantly
+titan company hire --id quill --name Quill --role writing \
+     --charter "Writes the words." --model claude-sonnet-5
+titan company huddle                              # the daily standup, derived from signed events
+titan company growth                              # 🎉 the celebration feed
+titan company seed                                # import your v7 history as founding memories
+```
+
+### 🧠 One brain, many minds
+
+What Scout learns, Quill knows — **with attribution**. The company brain pools
+every teammate's lessons into scope-aware, locally-indexed shared memory
+(SQLite FTS5, zero config, works offline). Private notes stay private. Wrong
+facts get retracted with a tombstone — the audit trail survives. Delete the
+index anytime; it rebuilds from the signed event log, because **events are
+truth and everything else is cache**.
+
+### 📈 It feels like a team, not a control panel
+
+Growth moments celebrate real work — *"Quill shipped their first accepted
+task"*, *"Scout is on a roll — 3 accepted in a row"*. The **huddle** gives you
+a standup-shaped digest of who did what. The new **Team Pulse** dashboard tab
+puts both on one page. Small things; they change how the whole product feels.
+
+### ⚡ The self-compiling loop — earned autonomy
+
+<p align="center">
+  <img src="assets/readme/v8-loop.svg" alt="Animated pipeline: RECORD signed traces, RECOGNIZE clusters, COMPILE recipes, SHADOW GATE proves equivalence, ROUTE replays instantly — with default-deny tools and confirm-required steps." width="880"/>
+</p>
+
+TITAN watches its own work. Repeated tasks get compiled into **recipes** that
+replay with **zero frontier-model calls** — but only after surviving the shadow
+gate: every candidate runs silently alongside the real model until its outputs
+are *proven equivalent*, and only then does it activate. Default-deny tool
+gates, confirm-required steps for anything risky, and provenance scoping (an
+agent never replays another agent's learned behavior) keep the autonomy honest.
+
+### 🔏 Trust is structural, not vibes
+
+The company runs on an append-only, hash-chained event log. Every hire, task,
+verdict, and memory is **signed by its author's key** — verifiable forever, by
+anyone, offline. Retire an agent and its write access is revoked from that
+event onward; its history stays intact. No admin backdoor. No silent edits.
+
+### And the fine print that isn't fine at all
+
+- **100% backward compatible** — `company.*` and `selfCompiling.*` flags default off; v7 setups upgrade untouched
+- 8,700+ tests · TypeScript-clean · independently audited (22 confirmed defects found *and fixed* before release)
+- Design co-reviewed in an open council with a GPT-5.6 agent — receipts on the log, naturally
+
+---
 
 ## What's new in v7.2.0 "Conscience" — Honesty as an Enforced Invariant
 

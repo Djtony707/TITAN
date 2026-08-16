@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" width="880" height="240" role="img" aria-label="TITAN v8 — The Company">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b2e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c5cff"/>
+      <stop offset="50%" stop-color="#4dabf7"/>
+      <stop offset="100%" stop-color="#3ddc97"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="880" height="240" rx="16" fill="url(#bg)"/>
+  <rect x="1" y="1" width="878" height="238" rx="15" fill="none" stroke="#2a3150" stroke-width="2"/>
+
+  <!-- Orbiting crew around the wordmark -->
+  <g transform="translate(140,120)">
+    <circle r="66" fill="none" stroke="#2a3150" stroke-width="1.5" stroke-dasharray="4 6"/>
+    <circle r="42" fill="none" stroke="#2a3150" stroke-width="1.5" stroke-dasharray="3 5"/>
+    <!-- core -->
+    <circle r="17" fill="url(#accent)" filter="url(#glow)">
+      <animate attributeName="r" values="17;19;17" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <text y="6" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="15" font-weight="700" fill="#0d1117">T</text>
+    <!-- teammates: outer orbit -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="14s" repeatCount="indefinite"/>
+      <circle cx="66" cy="0" r="9" fill="#4dabf7"/>
+      <circle cx="-33" cy="57" r="9" fill="#3ddc97"/>
+      <circle cx="-33" cy="-57" r="9" fill="#ffb057"/>
+    </g>
+    <!-- teammates: inner orbit, counter-rotating -->
+    <g>
+      <animateTransform attributeName="transform" type="rotate" from="360" to="0" dur="9s" repeatCount="indefinite"/>
+      <circle cx="42" cy="0" r="7" fill="#ff6b9d"/>
+      <circle cx="-42" cy="0" r="7" fill="#7c5cff"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <g font-family="-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+    <text x="270" y="105" font-size="52" font-weight="800" fill="#e6edf3" letter-spacing="2">TITAN <tspan fill="url(#accent)">v8</tspan></text>
+    <text x="272" y="143" font-size="22" font-weight="600" fill="#9aa4c7">The Company Release</text>
+    <text x="272" y="176" font-size="15" fill="#8b949e">
+      Your crew of AI specialists — shared memory, real hiring, earned autonomy.
+      <animate attributeName="opacity" values="0;1" dur="1.2s" begin="0.4s" fill="freeze"/>
+    </text>
+  </g>
+
+  <!-- Signature chain: linked blocks marching along the bottom -->
+  <g transform="translate(272,200)">
+    <g fill="none" stroke="#2f81f7" stroke-width="2" opacity="0.85">
+      <rect x="0" y="0" width="26" height="14" rx="3">
+        <animate attributeName="stroke" values="#2f81f7;#3ddc97;#2f81f7" dur="4s" repeatCount="indefinite"/>
+      </rect>
+      <line x1="26" y1="7" x2="40" y2="7"/>
+      <rect x="40" y="0" width="26" height="14" rx="3">
+        <animate attributeName="stroke" values="#2f81f7;#3ddc97;#2f81f7" dur="4s" begin="0.5s" repeatCount="indefinite"/>
+      </rect>
+      <line x1="66" y1="7" x2="80" y2="7"/>
+      <rect x="80" y="0" width="26" height="14" rx="3">
+        <animate attributeName="stroke" values="#2f81f7;#3ddc97;#2f81f7" dur="4s" begin="1s" repeatCount="indefinite"/>
+      </rect>
+      <line x1="106" y1="7" x2="120" y2="7"/>
+      <rect x="120" y="0" width="26" height="14" rx="3">
+        <animate attributeName="stroke" values="#2f81f7;#3ddc97;#2f81f7" dur="4s" begin="1.5s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+    <text x="160" y="12" font-family="ui-monospace,Menlo,monospace" font-size="11" fill="#6e7681">every event signed · every teammate attributable</text>
+  </g>
+</svg>

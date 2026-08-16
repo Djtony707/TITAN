@@ -63,8 +63,10 @@ function normalizeMeta(meta: Record<string, unknown> | undefined): Record<string
 }
 
 function normalizeLimit(limit: number | undefined): number {
-    if (!Number.isFinite(limit)) return DEFAULT_LIMIT;
-    return Math.min(Math.max(Math.floor(limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
+    if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
+    // Allow explicit "read all" by passing a very large limit.
+    if (limit >= Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
+    return Math.min(Math.max(Math.floor(limit), 1), MAX_LIMIT);
 }
 
 function matchesQuery(receipt: Receipt, q: ReceiptQuery): boolean {

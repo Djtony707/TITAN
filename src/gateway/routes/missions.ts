@@ -69,6 +69,10 @@ export interface MissionLifecycleAdapter {
     onUserMessage?(missionId: string, content: string): Promise<void> | void;
     /** Called when a mission status is being toggled by the UI. */
     onStatusChange?(missionId: string, status: MissionStatus): Promise<void> | void;
+    /** Called when a user nudges a stalled mission — should force a driver
+     *  tick on the linked goal. Returns the resulting phase, or null if
+     *  the mission has no linked goal. */
+    onNudge?(missionId: string): Promise<string | null | undefined> | string | null | undefined;
 }
 
 /** Default no-op adapter — tests get this; production replaces it. */
@@ -332,6 +336,43 @@ export function createMissionsRouter(adapter: MissionLifecycleAdapter = NOOP_ADA
             catch (err) { logger.warn(COMPONENT, `onStatusChange adapter failed: ${(err as Error).message}`); }
         }
         res.json({ ok: true });
+    });
+
+    // ── Nudge: force a driver tick on a stalled mission ────────────
+    //
+    // Bug #5 from the May 2026 audit (BUG_AUDIT_FINAL.md): there was no
+    // manual "nudge" API that a user could trigger from the UI to kick
+    // a stalled goal driver. The auto-recover (10-min scheduler tick)
+    // works, but users had no way to force an immediate retry. This
+    // endpoint calls the adapter's onNudge, which in production wires
+    // to tickDriver(goalId) on the linked goal.
+
+    router.post('/:id/nudge', async (req: Request, res: Response) => {
+        const room = getMission(req.params.id);
+        if (!room) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return;
+        }
+        const userId = (req as Request & { userId?: string }).userId;
+        if (userId && room.ownerId && room.ownerId !== userId) {
+            res.status(404).json({ error: 'mission_not_found' });
+            return;
+        }
+        if (!room.goalId) {
+            res.status(409).json({ error: 'no_linked_goal', message: 'Mission has no linked goal to nudge.' });
+            return;
+        }
+        if (!adapter.onNudge) {
+            res.status(501).json({ error: 'nudge_not_supported', message: 'Nudge is not wired on this server.' });
+            return;
+        }
+        try {
+            const phase = await Promise.resolve(adapter.onNudge(room.id));
+            res.json({ ok: true, goalId: room.goalId, phase: phase ?? 'unknown' });
+        } catch (err) {
+            logger.warn(COMPONENT, `onNudge adapter failed: ${(err as Error).message}`);
+            res.status(500).json({ error: 'nudge_failed', message: (err as Error).message });
+        }
     });
 
     // ── SSE event stream ──────────────────────────────────────────

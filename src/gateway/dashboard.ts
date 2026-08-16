@@ -3,7 +3,10 @@
  * Full-featured web GUI: auth, working chat, config editor, live data.
  */
 
-export function getMissionControlHTML(): string {
+export function getMissionControlHTML(v8Enabled: boolean = false): string {
+  const compileQueueNav = v8Enabled
+    ? '<div class="nav-item" data-panel="compile-queue" data-load="compile-queue"><span class="icon">📋</span>Compile Queue</div>'
+    : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -324,6 +327,7 @@ tr:hover{background:rgba(6,182,212,.03)}
     <div class="nav-section">System</div>
     <div class="nav-item" data-panel="telemetry" data-load="telemetry"><span class="icon">📈</span>Telemetry</div>
     <div class="nav-item" data-panel="autopilot" data-load="autopilot"><span class="icon">🚁</span>Autopilot</div>
+    ${compileQueueNav}
     <div class="nav-item" data-panel="security"><span class="icon">🔒</span>Security</div>
     <div class="nav-item" data-panel="logs" data-load="logs"><span class="icon">📜</span>Logs</div>
     <div class="nav-item" data-panel="workflows" data-load="workflows"><span class="icon">🔀</span>Workflows</div>
@@ -1041,6 +1045,34 @@ tr:hover{background:rgba(6,182,212,.03)}
         </div>
       </div>
     </div>
+${v8Enabled ? `
+    <!-- Compile Queue Panel (v8 Slice 4 — RECOGNIZE) -->
+    <div id="panel-compile-queue" class="panel">
+      <div class="card-grid">
+        <div class="stat-card cyan"><div class="stat-label">Total Clusters</div><div class="stat-value" id="cq-total">—</div></div>
+        <div class="stat-card purple"><div class="stat-label">Trajectories</div><div class="stat-value" id="cq-trajectories">—</div></div>
+        <div class="stat-card green"><div class="stat-label">Last Run</div><div class="stat-value" id="cq-last-run" style="font-size:14px">—</div></div>
+        <div class="stat-card amber"><div class="stat-label">Top Score</div><div class="stat-value" id="cq-top-score" style="font-size:14px">—</div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <h3 style="margin:0">📋 Compile Queue — Task Pattern Clusters</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn" data-action="refresh-compile-queue" style="font-size:12px;padding:6px 14px">↻ Refresh</button>
+          </div>
+        </div>
+        <div id="compile-queue-info" style="color:var(--text-dim);font-size:13px;margin-bottom:16px;padding:10px;background:var(--bg3);border-radius:var(--radius-sm)">
+          Nightly clustering of successful task trajectories by intent + typed entities. Scored by frequency × outcome-stability × success-rate. <strong>Read-only</strong> — compilation is a separate step (Slice 5).
+        </div>
+        <table class="table" id="compile-queue-table">
+          <thead><tr><th>Intent</th><th>Frequency</th><th>Success Rate</th><th>Stability</th><th>Score</th><th>Dominant Tools</th></tr></thead>
+          <tbody id="compile-queue-body"></tbody>
+        </table>
+        <div id="compile-queue-empty" style="display:none;text-align:center;color:var(--text-dim);padding:40px 20px;font-size:13px">
+          No clusters yet. Enable autopilot mode "recognize" and wait for the nightly run, or run it manually.
+        </div>
+      </div>
+    </div>` : ""}
 
     <!-- Voice Panel -->
     <div id="panel-voice" class="panel">
@@ -1199,6 +1231,7 @@ document.addEventListener('click', (e) => {
     if (target.dataset.load === 'autopilot') loadAutopilot();
     if (target.dataset.load === 'telemetry') loadTelemetry();
     if (target.dataset.load === 'voice') loadVoicePanel();
+    if (target.dataset.load === 'compile-queue') loadCompileQueue();
     // Close sidebar on mobile
     document.getElementById('sidebar')?.classList.remove('open');
   }
@@ -1237,6 +1270,7 @@ document.addEventListener('click', (e) => {
     if (a === 'clear-graph') clearGraphData();
     if (a === 'clear-all-data') clearAllData();
     if (a === 'refresh-autopilot') loadAutopilot();
+    if (a === 'refresh-compile-queue') loadCompileQueue();
     if (a === 'run-autopilot') runAutopilotNow();
     if (a === 'trigger-update') triggerUpdate();
     if (a === 'connect-google') connectGoogle();
@@ -2399,6 +2433,40 @@ async function loadAutopilot() {
     }
   } catch(e) {
     toast('Failed to load autopilot data', 'error');
+  }
+}
+
+async function loadCompileQueue() {
+  try {
+    const data = await fetch('/api/compile-queue', {headers:authHeaders()}).then(r=>r.json()).catch(()=>({clusters:[],stats:{}}));
+    const stats = data.stats || {};
+    const clusters = data.clusters || [];
+    const el = (id) => document.getElementById(id);
+    if (el('cq-total')) el('cq-total').textContent = stats.totalClusters ?? '—';
+    if (el('cq-trajectories')) el('cq-trajectories').textContent = stats.totalTrajectories ?? '—';
+    if (el('cq-last-run')) el('cq-last-run').textContent = stats.lastRunAt ? new Date(stats.lastRunAt).toLocaleString() : '—';
+    if (el('cq-top-score')) el('cq-top-score').textContent = stats.topCluster ? stats.topCluster.score.toFixed(1) : '—';
+    const tbody = el('compile-queue-body');
+    const empty = el('compile-queue-empty');
+    const table = el('compile-queue-table');
+    if (clusters.length > 0) {
+      if (table) table.style.display = '';
+      if (empty) empty.style.display = 'none';
+      if (tbody) tbody.innerHTML = clusters.map(c => {
+        const sr = c.successRate != null ? (c.successRate * 100).toFixed(0) + '%' : '—';
+        const stab = c.outcomeStability != null ? (c.outcomeStability * 100).toFixed(0) + '%' : '—';
+        const score = c.score != null ? c.score.toFixed(1) : '—';
+        const tools = Array.isArray(c.dominantToolSequence) ? c.dominantToolSequence.slice(0, 3).map(escHtml).join(', ') : '—';
+        const intent = c.signature ? (c.signature.intent || '—') : '—';
+        return '<tr><td>' + escHtml(intent) + '</td><td>' + (c.frequency ?? '—') + '</td><td>' + sr + '</td><td>' + stab + '</td><td>' + score + '</td><td style="font-size:12px">' + tools + '</td></tr>';
+      }).join('');
+    } else {
+      if (table) table.style.display = 'none';
+      if (empty) empty.style.display = '';
+      if (tbody) tbody.innerHTML = '';
+    }
+  } catch(e) {
+    toast('Failed to load compile queue', 'error');
   }
 }
 

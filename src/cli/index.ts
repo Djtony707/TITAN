@@ -54,6 +54,138 @@ program
         }
     });
 
+// ─── COMPANY (v8) ────────────────────────────────────────────────
+program
+    .command('company')
+    .description('your TITAN company — create, status, hiring, the huddle (v8)')
+    .argument('<action>', 'create | status | hire | retire | huddle | growth | seed | queue-discard')
+    .option('--mission <mission>', 'company mission (create)')
+    .option('--id <agentId>', 'agent id (hire/retire)')
+    .option('--name <displayName>', 'company name (create) / display name (hire)')
+    .option('--role <role>', 'role, e.g. writing, research (hire)')
+    .option('--charter <charter>', 'one-line charter (hire)')
+    .option('--harness <harness>', 'runner harness for this agent (hire)')
+    .option('--model <model>', 'model for this agent (hire)')
+    .option('--reason <reason>', 'reason (retire)')
+    .option('--hours <n>', 'huddle window in hours (default 24)')
+    .action(async (action: string, opts: {
+        id?: string; name?: string; role?: string; charter?: string;
+        harness?: string; model?: string; reason?: string; hours?: string; mission?: string;
+    }) => {
+        const { loadAgentKeys } = await import('../company/keys.js');
+        const { TITAN_HOME } = await import('../utils/constants.js');
+        const { join } = await import('path');
+        const { existsSync } = await import('fs');
+        const keysDir = join(TITAN_HOME, 'company', 'keys');
+        const die = (msg: string): void => { console.error(msg); process.exitCode = 1; };
+        // Friendly guard (QA #3): actions that need an existing company
+        // should say so — not surface a raw keypair ENOENT.
+        const requireCompany = (): boolean => {
+            if (existsSync(join(keysDir, 'user.keypair'))) return true;
+            die(`No company yet. Create one first:\n  titan company create --name "My Company"`);
+            return false;
+        };
+        try {
+            switch (action) {
+                case 'create': {
+                    if (!opts.name) return die('create needs --name "Your Company" (plus optional --mission)');
+                    const { createCompany } = await import('../company/service.js');
+                    const s = await createCompany({ name: opts.name, ...(opts.mission ? { mission: opts.mission } : {}) });
+                    console.log(`🏢 ${s.name} is open for business — ${s.agents.length} founding teammates:`);
+                    for (const a of s.agents) console.log(`  · ${a.displayName} (${a.role})`);
+                    console.log(`Next: titan company hire — or just start delegating.`);
+                    return;
+                }
+                case 'status': {
+                    const { getCompanyStatus } = await import('../company/service.js');
+                    const s = await getCompanyStatus();
+                    if (!s.exists) {
+                        console.log('No company yet. Enable company.enabled in your config and start the gateway — the crew is minted on first boot.');
+                        return;
+                    }
+                    console.log(`${s.name}${s.mission ? ` — ${s.mission}` : ''}`);
+                    for (const a of s.agents) {
+                        const extra = [a.role, a.model, a.harness].filter(Boolean).join(' · ');
+                        console.log(`  ${a.source === 'hired' ? '★' : '·'} ${a.displayName} (${a.agentId})${extra ? ` — ${extra}` : ''}`);
+                    }
+                    console.log(`${s.eventCount} signed events on the company log.`);
+                    return;
+                }
+                case 'hire': {
+                    if (!requireCompany()) return;
+                    if (!opts.id || !opts.name || !opts.role || !opts.charter) {
+                        return die('hire needs --id --name --role --charter (plus optional --harness --model)');
+                    }
+                    const { hireAgent } = await import('../company/hiring.js');
+                    const { CompanyLog } = await import('../company/log.js');
+                    const log = new CompanyLog(TITAN_HOME, keysDir, { brain: true });
+                    const user = loadAgentKeys('user', keysDir);
+                    hireAgent(log, keysDir, 'user', user.privateKey, {
+                        agentId: opts.id, displayName: opts.name, role: opts.role, charter: opts.charter,
+                        ...(opts.harness ? { harness: opts.harness } : {}),
+                        ...(opts.model ? { model: opts.model } : {}),
+                    });
+                    console.log(`🎉 ${opts.name} joined the company as ${opts.role}.`);
+                    return;
+                }
+                case 'retire': {
+                    if (!requireCompany()) return;
+                    if (!opts.id) return die('retire needs --id (and ideally --reason)');
+                    const { retireAgent } = await import('../company/hiring.js');
+                    const { CompanyLog } = await import('../company/log.js');
+                    const log = new CompanyLog(TITAN_HOME, keysDir, { brain: true });
+                    const user = loadAgentKeys('user', keysDir);
+                    retireAgent(log, 'user', user.privateKey, {
+                        agentId: opts.id, reason: opts.reason ?? 'assignment complete',
+                    });
+                    console.log(`👋 ${opts.id} wrapped up. Their signed history stays on the log.`);
+                    return;
+                }
+                case 'huddle': {
+                    const { getHuddle } = await import('../company/service.js');
+                    const hours = Math.min(Math.max(Number(opts.hours ?? 24) || 24, 1), 24 * 14);
+                    const d = await getHuddle(hours * 60 * 60 * 1000);
+                    console.log(d.rendered);
+                    return;
+                }
+                case 'growth': {
+                    const { getGrowthMoments } = await import('../company/service.js');
+                    const moments = await getGrowthMoments(20);
+                    if (moments.length === 0) {
+                        console.log('The feed fills as your team works — first hires, first wins, lessons learned.');
+                        return;
+                    }
+                    for (const m of moments) console.log(`• ${m.text}`);
+                    return;
+                }
+                case 'seed': {
+                    if (!requireCompany()) return;
+                    const { CompanyLog } = await import('../company/log.js');
+                    const { seedBrainFromV7 } = await import('../company/brainSeed.js');
+                    const log = new CompanyLog(TITAN_HOME, keysDir, { brain: true });
+                    const out = seedBrainFromV7(TITAN_HOME, log);
+                    console.log(`Seeded ${out.imported} founding memories from your v7 history (${out.skipped} skipped).`);
+                    return;
+                }
+                case 'queue-discard': {
+                    // The authenticated user-invoked discard path (design v5
+                    // §3b): running this CLI command IS the user's
+                    // authorization; credential acquisition happens here, at
+                    // the CLI boundary — the service op is non-ambient.
+                    const { queueDiscard } = await import('../company/service.js');
+                    const user = loadAgentKeys('user', keysDir);
+                    const out = await queueDiscard(user.privateKey);
+                    console.log(`queue-discard complete: ${out.unblocked} unblocked, ${out.lifted} holds lifted, ${out.terminalized} tasks terminalized (needs-work).`);
+                    return;
+                }
+                default:
+                    return die(`Unknown company action "${action}". Available: status | hire | retire | huddle | growth | seed | queue-discard`);
+            }
+        } catch (err) {
+            die(`company ${action} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    });
+
 // ─── GATEWAY ─────────────────────────────────────────────────────
 program
     .command('gateway')

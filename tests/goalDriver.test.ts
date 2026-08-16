@@ -118,6 +118,9 @@ vi.mock('../src/agent/commandPost.js', () => ({
         status: 'pending',
     })),
     getApproval: vi.fn(() => null),
+    rejectApproval: vi.fn((id: string, _decidedBy: string, _note?: string) => ({
+        id, status: 'rejected', decidedBy: 'auto:timeout',
+    })),
 }));
 
 // Mock episodic
@@ -146,6 +149,11 @@ import {
     _resetDriverStateForTests,
 } from '../src/agent/goalDriver.js';
 import { structuredSpawn as mockedStructuredSpawn } from '../src/agent/structuredSpawn.js';
+import {
+    getApproval as mockedGetApproval,
+    rejectApproval as mockedRejectApproval,
+    createApproval as mockedCreateApproval,
+} from '../src/agent/commandPost.js';
 import type { DriverState } from '../src/agent/goalDriverTypes.js';
 
 // Helper to seed mockGoals
@@ -729,6 +737,181 @@ describe('v4.10.0-local root-cause fixes', () => {
             // entry should appear in history.
             expect(after.phase === 'delegating' || after.phase === 'done').toBe(true);
             expect(after.history.some(h => /Observe tick with no spawn progress/i.test(h.note))).toBe(false);
+        });
+    });
+
+    // ── Fix G — 15-min pending approval auto-reject (v6.1.0-alpha.43 Bug #6) ──
+    // Per Honey's #11 gate: 10-min recovery is time-driven E2E verified (Fix F
+    // above). The 15-min path was previously only source-pattern-verified
+    // (alpha.51 grep tests). These tests drive the production tickBlocked
+    // branch end-to-end with a real pending approval, a real `sinceAt` just
+    // over and just under 15 min, and assert the side effects Honey listed.
+    describe('Fix G — 15-min pending approval auto-reject (alpha.43 Bug #6)', () => {
+        // Per-test fake approval store, keyed by id. getApproval reads; rejectApproval mutates.
+        let mockApprovals: Map<string, { id: string; status: string; decisionNote?: string }>;
+
+        beforeEach(() => {
+            mockApprovals = new Map();
+            // Pre-seed a pending approval linked via blockedReason.approvalId below.
+            mockApprovals.set('appr-stale', { id: 'appr-stale', status: 'pending' });
+            vi.mocked(mockedGetApproval).mockReset();
+            vi.mocked(mockedGetApproval).mockImplementation(
+                (id: string) => (mockApprovals.get(id) || null) as { id: string; status: string; decisionNote?: string } | null,
+            );
+            vi.mocked(mockedRejectApproval).mockReset();
+            vi.mocked(mockedRejectApproval).mockImplementation(
+                (id: string, decidedBy: string) => {
+                    const a = mockApprovals.get(id);
+                    if (a) {
+                        a.status = 'rejected';
+                        (a as { decidedBy?: string }).decidedBy = decidedBy;
+                    }
+                    return (a || { id, status: 'rejected', decidedBy }) as { id: string; status: string; decisionNote?: string };
+                },
+            );
+            vi.mocked(mockedCreateApproval).mockClear();
+        });
+
+        function writeBlockedState(goalId: string, approvalId: string, ageMin: number): void {
+            const sinceAt = new Date(Date.now() - ageMin * 60 * 1000).toISOString();
+            writeDriverStateToDisk(goalId, {
+                schemaVersion: 1,
+                goalId,
+                phase: 'blocked',
+                startedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+                lastTickAt: new Date().toISOString(),
+                budget: { tokensUsed: 0, costUsd: 0, elapsedMs: 0, totalRetries: 2 },
+                budgetCaps: { maxTokens: 500000, maxCostUsd: 5, maxElapsedMs: 4 * 3600 * 1000, maxRetries: 10 },
+                userControls: { paused: false, cancelRequested: false, priority: 3 },
+                blockedReason: {
+                    question: 'Real audit question that the human never answered',
+                    approvalId,
+                    sinceAt,
+                    kind: 'needs_info',
+                },
+                subtaskStates: {
+                    'st-1': { kind: 'analysis', attempts: 2, artifacts: [], maxAttempts: 5 },
+                },
+                currentSubtaskId: 'st-1',
+                history: [],
+            });
+        }
+
+        it('auto-rejects a pending approval when blockedReason.sinceAt > 15 min', async () => {
+            mockGoal('g-15min', 'Pending approval timeout', {
+                subtasks: [{ title: 'Do thing', description: '' }],
+            });
+            _resetDriverStateForTests('g-15min');
+            writeBlockedState('g-15min', 'appr-stale', 16); // 16 min > 15 min threshold
+
+            await tickDriver('g-15min');
+            const after = getDriverState('g-15min')!;
+
+            // (1) rejectApproval was called with the timeout actor and a real reason
+            expect(vi.mocked(mockedRejectApproval)).toHaveBeenCalledTimes(1);
+            const [calledId, calledBy, calledNote] = vi.mocked(mockedRejectApproval).mock.calls[0];
+            expect(calledId).toBe('appr-stale');
+            expect(calledBy).toBe('auto:timeout');
+            expect(calledNote).toMatch(/Auto-rejected after 16min/);
+
+            // (2) Underlying approval is now rejected
+            expect(mockApprovals.get('appr-stale')!.status).toBe('rejected');
+
+            // (3) blockedReason is cleared
+            expect(after.blockedReason).toBeUndefined();
+
+            // (4) Phase is iterating
+            expect(after.phase).toBe('iterating');
+
+            // (5) Current subtask has commitOverride set
+            const sub = after.subtaskStates['st-1'];
+            expect(sub.commitOverride).toBe(true);
+
+            // (6) lastError is the TIMEOUT_DIRECTIVE
+            expect(sub.lastError).toMatch(/^TIMEOUT_DIRECTIVE:/);
+
+            // (7) History contains the auto-reject note
+            expect(after.history.some(h => /Stale pending approval appr-stale auto-rejected after 16min/i.test(h.note))).toBe(true);
+        });
+
+        it('does NOT auto-reject when sinceAt is just under 15 min', async () => {
+            mockGoal('g-15min-fresh', 'Fresh pending approval', {
+                subtasks: [{ title: 'Do thing', description: '' }],
+            });
+            _resetDriverStateForTests('g-15min-fresh');
+            writeBlockedState('g-15min-fresh', 'appr-stale', 14); // 14 min < 15 min threshold
+
+            await tickDriver('g-15min-fresh');
+            const after = getDriverState('g-15min-fresh')!;
+
+            // rejectApproval should NOT have been called — 14 min is under the 15-min window
+            expect(vi.mocked(mockedRejectApproval)).not.toHaveBeenCalled();
+
+            // Underlying approval is still pending
+            expect(mockApprovals.get('appr-stale')!.status).toBe('pending');
+
+            // State is unchanged: still blocked, blockedReason still set, commitOverride not set
+            expect(after.phase).toBe('blocked');
+            expect(after.blockedReason).toBeDefined();
+            expect(after.blockedReason!.approvalId).toBe('appr-stale');
+            expect(after.subtaskStates['st-1'].commitOverride).toBeFalsy();
+        });
+
+        it('commit-override short-circuits the next needs_info: no replacement approval is filed', async () => {
+            mockGoal('g-15min-override', 'Override short-circuit', {
+                subtasks: [{ title: 'Do thing', description: '' }],
+            });
+            _resetDriverStateForTests('g-15min-override');
+
+            // First tick: write a 16-min stale blocked state and run the actual driver tick.
+            // This drives the auto-reject branch and lands us in phase=iterating
+            // with sub.commitOverride=true and sub.lastError=TIMEOUT_DIRECTIVE.
+            writeBlockedState('g-15min-override', 'appr-stale', 16);
+            await tickDriver('g-15min-override');
+
+            const mid = getDriverState('g-15min-override')!;
+            expect(mid.phase).toBe('iterating');
+            expect(mid.subtaskStates['st-1'].commitOverride).toBe(true);
+
+            // Now flip the state to 'delegating' so the second tick drives
+            // tickDelegating → structuredSpawn → needs_info path. We
+            // override structuredSpawn to return needs_info (the audit bug
+            // scenario: specialist still couldn't answer after the
+            // TIMEOUT_DIRECTIVE).
+            writeDriverStateToDisk('g-15min-override', {
+                ...mid,
+                phase: 'delegating',
+                history: mid.history, // preserve the auto-reject history entry
+            });
+            vi.mocked(mockedStructuredSpawn).mockReset();
+            vi.mocked(mockedStructuredSpawn).mockResolvedValue({
+                status: 'needs_info',
+                artifacts: [],
+                questions: ['Unanswerable: which framework should I pick?'],
+                confidence: 0.4,
+                reasoning: 'still cannot decide',
+                rawResponse: '',
+                specialistId: 'mock',
+                toolsUsed: [],
+                durationMs: 10,
+            });
+
+            // Second tick: delegating → structuredSpawn returns needs_info →
+            // commitOverride short-circuit at goalDriver.ts:850 should fire.
+            await tickDriver('g-15min-override');
+            const after = getDriverState('g-15min-override')!;
+
+            // (1) NO replacement approval was filed (createApproval never called)
+            expect(vi.mocked(mockedCreateApproval)).not.toHaveBeenCalled();
+
+            // (2) commitOverride is now false (one-shot cleared)
+            expect(after.subtaskStates['st-1'].commitOverride).toBe(false);
+
+            // (3) We did NOT re-block
+            expect(after.phase).not.toBe('blocked');
+
+            // (4) History shows the commit-override applied
+            expect(after.history.some(h => /Commit-override applied on st-1/i.test(h.note))).toBe(true);
         });
     });
 });

@@ -125,6 +125,10 @@ export interface ChatResponse {
         promptTokens: number;
         completionTokens: number;
         totalTokens: number;
+        /** True only when the provider reported real measured token counts.
+         *  Streaming estimates, stub approximations, and synthetic zeros
+         *  must set false so measured rollups exclude them. */
+        measured?: boolean;
     };
     finishReason: 'stop' | 'tool_calls' | 'length' | 'error';
     model: string;

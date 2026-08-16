@@ -107,6 +107,7 @@ interface DeskItem {
  */
 import type { RolledUpActivitySticky } from './mission/rollupActivityStickies';
 import { rollupActivityStickies, ACTIVITY_STICKY_CAP } from './mission/rollupActivityStickies';
+import { projectMissionTeam } from './mission/projectMissionTeam';
 type ActivitySticky = RolledUpActivitySticky;
 
 /**
@@ -341,14 +342,12 @@ export default function MissionCanvas() {
     // Cap is ACTIVITY_STICKY_CAP (12) ROLLED-UP groups, so the visible
     // sticky count is the same as before but each one can represent
     // many underlying actions.
-    return rollupActivityStickies(
-      room.team.map(m => ({
-        agentId: m.agentId,
-        name: m.name,
-        color: m.color,
-        activityLog: m.activityLog,
-      })),
-    );
+    //
+    // Bug #4 — projectMissionTeam includes hidden members (e.g. the goal
+    // driver) in activityMembers so their activityLog feeds stickies.
+    // The projection is pure and tested in tests/ui/bug4-hidden-driver-sticky.test.ts.
+    const { activityMembers } = projectMissionTeam(room.team);
+    return rollupActivityStickies(activityMembers);
   }, [room]);
   // Suppress unused-import warnings when the cap constant is referenced
   // only inside the helper. Keeping the named import here makes the cap
@@ -380,7 +379,9 @@ export default function MissionCanvas() {
     out.push({ id: 'clock', kind: 'clock' });
     out.push({ id: 'cabinet', kind: 'cabinet' });
     out.push({ id: 'trash', kind: 'trash' });
-    for (const m of room.team) {
+    // Bug #4 — visibleMembers filters out hidden system members
+    // (e.g. the goal driver) so they don't appear as agent desk items.
+    for (const m of projectMissionTeam(room.team).visibleMembers) {
       out.push({ id: `agent:${m.agentId}`, kind: 'agent', ref: m.agentId });
     }
     for (const f of fileSources) {
@@ -1117,12 +1118,17 @@ function DocumentPaper({ room }: { room: MissionRoom }) {
 
   // If the team is active and the document recently grew, show a
   // live-writing indicator with a blinking cursor.
-  const teamActive = room.team.some(t => t.state === 'working' || t.state === 'editing');
+  //
+  // Bug #4 — teamActive comes from projectMissionTeam so hidden system
+  // members (e.g. the goal driver) are excluded; only visible members
+  // with working/editing state trigger the live-writing indicator.
+  const teamActive = projectMissionTeam(room.team).teamActive;
 
   // Phase 1 polish — show a polished SVG chart skeleton when an
   // Analyst is computing (heuristic: any team member named "Analyst"
   // or with role containing "analyst" is in working/editing state).
   const analystComputing = teamActive && room.team.some(t =>
+    !t.hidden &&
     (t.state === 'working' || t.state === 'editing') &&
     (t.name.toLowerCase().includes('analyst') || (t.role ?? '').toLowerCase().includes('analyst'))
   );
@@ -1303,7 +1309,7 @@ function DeskClock({ room }: { room: MissionRoom }) {
     : Math.max(0, now.getTime() - startMs);
   const elapsed = splitHMS(elapsedMs);
 
-  const { working, blocked } = countTeam(room);
+  const { working, blocked, total } = countTeam(room);
 
   return (
     <div
@@ -1347,7 +1353,7 @@ function DeskClock({ room }: { room: MissionRoom }) {
       >
         <ClockStat n={working} label="working" tone="accent" />
         <ClockStat n={blocked} label={blocked === 1 ? 'needs you' : 'need you'} tone="warn" />
-        <ClockStat n={room.team.length} label="on team" tone="muted" />
+        <ClockStat n={total} label="on team" tone="muted" />
       </div>
     </div>
   );
@@ -2449,12 +2455,14 @@ const DUST_MOTES: Array<{ left: number; size: number; duration: number; delay: n
 // ── Small helpers (parity with chat view) ────────────────────────────
 
 function countTeam(room: MissionRoom) {
-  let working = 0, blocked = 0;
+  let working = 0, blocked = 0, total = 0;
   for (const m of room.team) {
+    if (m.hidden) continue; // skip hidden system members (Bug #4)
+    total++;
     if (m.state === 'working' || m.state === 'editing') working++;
     if (m.state === 'blocked') blocked++;
   }
-  return { working, blocked };
+  return { working, blocked, total };
 }
 
 function statusBlurb(s: MissionRoom['status'], working: number, blocked: number): string {

@@ -858,8 +858,9 @@ export const TitanConfigSchema = z.object({
             start: z.number().min(0).max(23).default(0),
             end: z.number().min(0).max(23).default(23),
         }).optional(),
-        /** Autopilot mode: 'checklist' (AUTOPILOT.md), 'goals' (goal-based), or 'self-improve' (autonomous self-improvement) */
-        mode: z.enum(['checklist', 'goals', 'self-improve']).default('checklist'),
+        /** Autopilot mode: 'checklist' (AUTOPILOT.md), 'goals' (goal-based), 'self-improve' (autonomous self-improvement),
+         *  'autoresearch' (model fine-tuning), 'recognize' (v8 Slice 4 nightly clustering), 'compile' (v8 Slice 5 compile pipeline) */
+        mode: z.enum(['checklist', 'goals', 'self-improve', 'autoresearch', 'recognize', 'compile']).default('checklist'),
         /** Goal-based autopilot settings */
         goals: z.object({
             /** Maximum active goals */
@@ -1271,6 +1272,68 @@ export const TitanConfigSchema = z.object({
         profiles: z.record(z.string(), z.object({
             headless: z.boolean().optional(),
         })).default({}),
+    }).default({}),
+    /**
+     * v8 Company Layer (Slice 1) — the company-of-agents platform.
+     * When enabled, mints a workspace + CEO + starter crew with signed
+     * identities into one shared room in Mission Control. When disabled
+     * (default), the gateway boots byte-identical to v7 — no DB, no
+     * routes, no UI tab. See V8_SLICE1_DESIGN.md.
+     */
+    /** v8 Slice 3 — persistent recording of agent turns for audit/replay.
+     *  When enabled, each completed agent turn is durably recorded; the
+     *  runtime loads this setting at boot, so toggling it requires restart. */
+    record: z.object({
+        enabled: z.boolean().default(false),
+    }).default({}),
+
+    /**
+     * v8 Self-Compiling Agent (Slices 4–6: Recognize → Compile → Route).
+     * Master switch for the three-stage recipe loop. When disabled (default),
+     * the agent loop is byte-identical to v7: no trace persistence, no recipe
+     * registry, no router middleware, no extra log lines. When enabled, the
+     * TraceStore (Stage 1: RECORD) writes completed traces, the Recognizer
+     * clusters them into recipes, and the Router short-circuits exact matches
+     * with zero frontier-model calls. Default off — 53,766 installs must not
+     * see behavior change. See V8_SLICE6_DESIGN.md.
+     */
+    selfCompiling: z.object({
+        /** Master switch. Default off = v7 byte-identical behavior. */
+        enabled: z.boolean().default(false),
+        /** Stage 1 (RECORD): persist completed traces to disk. Implies
+         *  `enabled`; safe to set true while the rest stays off. */
+        record: z.boolean().default(false),
+        /** Stage 3 (COMPILE): compile persisted traces into candidate recipes.
+         *  Implies `enabled`; the registry stays empty until recipes are
+         *  compiled. `registerRecipe` refuses when this is false. */
+        compile: z.boolean().default(false),
+        /** Stage 4 (GATE): promote candidate → shadow → active via the
+         *  promotion state machine. Implies `enabled`; `promoteToShadow`
+         *  and `activate` refuse when this is false. Shadow comparison
+         *  recording is part of the promotion flow and is gated too. */
+        promote: z.boolean().default(false),
+        /** Stage 5 (ROUTE): router middleware at the loop head. Implies
+         *  `enabled`; the registry is empty by default so this is a
+         *  constant-time miss until recipes are compiled. */
+        route: z.boolean().default(false),
+    }).default({}),
+
+    company: z.object({
+        /** Master switch for the v8 company layer. Default off. */
+        enabled: z.boolean().default(false),
+        /** Company name (used when minting the initial company). */
+        name: z.string().optional(),
+        /** Mission statement for the company. */
+        mission: z.string().optional(),
+        /** v8 Slice 2 — the work queue sub-layer. Default off: queue kinds
+         *  are not appendable and queue modules stay unimported. */
+        queue: z.object({
+            enabled: z.boolean().default(false),
+            /** Bounded failure retries per task (attempts cap). */
+            maxAttempts: z.number().int().min(1).max(5).default(2),
+            /** Owner-silence threshold for stuck derivation (ms). */
+            stuckAfterMs: z.number().int().positive().default(5 * 60 * 1000),
+        }).default({}),
     }).default({}),
     /** v5.0: UI theming */
     ui: z.object({

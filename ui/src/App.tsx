@@ -36,6 +36,9 @@ const CPOrg = lazy(() => import('@/components/command-post/CPOrg'));
 const CPFiles = lazy(() => import('@/components/command-post/CPFiles'));
 const CPVoice = lazy(() => import('@/components/command-post/CPVoice'));
 const CPCosts = lazy(() => import('@/components/command-post/CPCosts'));
+const CompanyRoom = lazy(() => import('@/components/command-post/CompanyRoom'));
+const CompanyQueue = lazy(() => import('@/components/command-post/CompanyQueue'));
+const RecordPanel = lazy(() => import('@/components/command-post/RecordPanel'));
 
 // ── Canonical shell section pages ────────────────────────────
 const PersonasPanel = lazy(() => import('@/components/admin/PersonasPanel'));
@@ -145,6 +148,9 @@ function AuthenticatedAppInner() {
             <Route path="/team" element={<Navigate to="/team/agents" replace />} />
             <Route path="/team/agents" element={<CommandPostRoute title="Agents"><CPAgents /></CommandPostRoute>} />
             <Route path="/team/org-chart" element={<CommandPostRoute title="Org Chart"><CPOrg /></CommandPostRoute>} />
+            <Route path="/team/company" element={<CompanyRoute><CompanyRoom /></CompanyRoute>} />
+            <Route path="/team/queue" element={<QueueRoute><CompanyQueue /></QueueRoute>} />
+            <Route path="/team/record" element={<RecordRoute><RecordPanel /></RecordRoute>} />
             <Route path="/team/personas" element={<PersonasPanel />} />
 
             <Route path="/knowledge" element={<MemoryGraphPanel />} />
@@ -298,6 +304,171 @@ function CommandPostRoute({ children, title }: { children: ReactNode; title: str
             >
               Start a mission
             </Link>
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * v8 Company Route guard — gates on `company.enabled` (independent of
+ * Command Post). When the v8 company layer is off (default), shows a
+ * disabled state with a link to settings. When on, renders children.
+ */
+function CompanyRoute({ children }: { children: ReactNode }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setEnabled(Boolean(cfg.company?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (enabled === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!enabled) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            v8 Company is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">The Company Room is not active</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            The v8 company layer mints a workspace with a CEO and crew into a shared room.
+            Enable it in settings when you're ready to try the company-of-agents platform.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * v8 Queue Route guard — gates on both `company.enabled` AND
+ * `company.queue.enabled`. Shows a disabled state pointing to settings
+ * when either flag is off.
+ */
+function QueueRoute({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<{ companyOn: boolean; queueOn: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setState({
+          companyOn: Boolean(cfg.company?.enabled),
+          queueOn: Boolean(cfg.company?.queue?.enabled),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ companyOn: false, queueOn: false });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (state === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!state.companyOn || !state.queueOn) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            v8 Work Queue is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">The Work Queue is not active</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            The v8 work queue adds one-lane task serialization, derived presence, holds, blocks,
+            and commitments on top of the company layer.
+            {!state.companyOn && ' Enable company.enabled first, then '}
+            {!state.companyOn && 'enable company.queue.enabled in settings.'}
+            {state.companyOn && !state.queueOn && ' Enable company.queue.enabled in settings.'}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              to="/system/settings"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            >
+              Open settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * v8 Record Route guard — gates on `record.enabled`. Shows a disabled
+ * state pointing to settings when the flag is off.
+ */
+function RecordRoute({ children }: { children: ReactNode }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (!cancelled) setEnabled(Boolean(cfg.record?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (enabled === null) {
+    return <LoadingFallback />;
+  }
+
+  if (!enabled) {
+    return (
+      <div className="flex min-h-full items-center justify-center px-6 py-16">
+        <div className="max-w-md rounded-md border border-border bg-bg-secondary/80 p-6 text-center shadow-lg">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+            v8 Record is off
+          </div>
+          <h1 className="mb-3 text-2xl font-semibold text-text">Record is not active</h1>
+          <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+            The v8 record layer durably records every agent turn with a measured
+            token count and outcome receipt, enabling per-task cost analysis and
+            compile eligibility. Enable <code className="text-text">record.enabled</code> in settings.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
             <Link
               to="/system/settings"
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"

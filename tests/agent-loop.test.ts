@@ -3,7 +3,10 @@
  * Tests the phase state machine: THINK → ACT → RESPOND → DONE
  * Covers: phase transitions, ToolRescue, SelfHeal, reflection, abort, budget, streaming.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // ── Hoisted mock variables ──────────────────────────────────────────────
 const mockChat = vi.hoisted(() => vi.fn());
@@ -899,5 +902,78 @@ describe('AgentLoop — Async sub-agent injection', () => {
         const injectedMsg = ctx.messages.find(m => m.content.includes('Async Task Complete'));
         expect(injectedMsg).toBeDefined();
         expect(result.content).toBe('Based on the research...');
+    });
+});
+
+describe('AgentLoop — subdirectory-hints pairs by tool-call id, not array index', () => {
+    // Regression coverage for the audit-confirmed defect: the subdirectory-hints
+    // block (~line 1890) used to pair toolResults[i] with pendingToolCalls[i] by
+    // index. partitionToolCalls() (parallelTools.ts) dedupes identical
+    // (name, args) tool calls before execution, so a THINK round that asks for
+    // 3 calls where the middle one is a duplicate of the first comes back with
+    // only 2 toolResults — misaligning every index after the dedup point. This
+    // reproduces that shape directly against the real (unmocked) subdirHints
+    // module: it's the only way to observe the bug, since a wrong pairing means
+    // querying the tracker with the WRONG call's args, which silently drops (or
+    // misattributes) a real hint rather than throwing.
+    let tempRoot: string;
+
+    beforeEach(() => {
+        tempRoot = mkdtempSync(join(tmpdir(), 'titan-agentloop-subdir-'));
+        mkdirSync(join(tempRoot, 'subdirA'), { recursive: true });
+        mkdirSync(join(tempRoot, 'subdirC'), { recursive: true });
+        // Only subdirC carries a hint file — subdirA is the "no hint" control.
+        writeFileSync(
+            join(tempRoot, 'subdirC', 'AGENTS.md'),
+            '# subdirC rules\nUNIQUE_HINT_MARKER_C: always run the C test suite first.',
+            'utf-8',
+        );
+    });
+
+    afterEach(() => {
+        try { rmSync(tempRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it('attaches the hint to the tool result whose id matches the call that touched the hinted directory', async () => {
+        const pathA = join(tempRoot, 'subdirA', 'a.txt'); // no AGENTS.md here
+        const pathC = join(tempRoot, 'subdirC', 'c.txt'); // AGENTS.md here
+
+        // THINK: model requests 3 calls — the 2nd is a byte-for-byte duplicate
+        // of the 1st (same name + args), exactly the shape partitionToolCalls()
+        // collapses in production.
+        const think = makeChatResponse('', [
+            { name: 'read_file', args: JSON.stringify({ path: pathA }) },        // call 0 — kept
+            { name: 'read_file', args: JSON.stringify({ path: pathA }) },        // call 1 — duplicate, deduped away
+            { name: 'read_file', args: JSON.stringify({ path: pathC }) },        // call 2 — kept
+        ]);
+        mockChat.mockResolvedValueOnce(think);
+
+        const [callA, , callC] = think.toolCalls!;
+
+        // ACT: simulate what executeTools() actually returns after dedup — only
+        // 2 results for 3 pending calls, each carrying the id of the real call
+        // it answers (per ToolResult.toolCallId / executeTools in toolRunner.ts).
+        const toolResults = [
+            { toolCallId: callA.id, name: 'read_file', content: 'contents of A', success: true, durationMs: 5 },
+            { toolCallId: callC.id, name: 'read_file', content: 'contents of C', success: true, durationMs: 5 },
+        ];
+        mockExecuteTools.mockResolvedValueOnce(toolResults);
+
+        // RESPOND
+        mockChat.mockResolvedValueOnce(makeChatResponse('Read both files.'));
+
+        const sessionId = `subdir-pairing-${Date.now()}-${Math.random()}`;
+        await runAgentLoop(makeLoopContext({ sessionId }));
+
+        // Correct (id-based) pairing: result[1] (callC's result) gets C's hint;
+        // result[0] (callA's result) is untouched (subdirA has no AGENTS.md).
+        //
+        // With the old index-based bug, result[1] would be paired against
+        // pendingToolCalls[1] (the deduped-away duplicate of A, whose args
+        // point at subdirA) — so C's real hint would never be attached, and
+        // this content would still read exactly "contents of C".
+        expect(toolResults[1].content).toContain('UNIQUE_HINT_MARKER_C');
+        expect(toolResults[1].content).toContain('[Subdirectory context discovered:');
+        expect(toolResults[0].content).toBe('contents of A');
     });
 });

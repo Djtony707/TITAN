@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { loadConfig } from '../config/config.js';
+import type { TitanConfig } from '../config/schema.js';
 import { getOrCreateSession, getOrCreateSessionById, addMessage, getContextMessages } from './session.js';
 import { getToolDefinitions } from './toolRunner.js';
 import { recordUsage, searchMemories } from '../memory/memory.js';
@@ -49,6 +50,8 @@ import { registerTool } from './toolRunner.js';
 import { runAgentLoop, type LoopResult } from './agentLoop.js';
 import { detectSystemWidget, buildSystemWidgetGate } from './systemWidgets.js';
 import { startTrace } from './tracer.js';
+import { ensureTracePersistence } from './traceStore.js';
+import { shouldPersistTraces } from './v8Gates.js';
 import { initSoulState, updateSoulState, emitHeartbeat, getInnerMonologue, consolidateWisdom, clearSoulState, getWisdomHints } from './soul.js';
 import logger from '../utils/logger.js';
 import { TITAN_NAME, AGENTS_MD, SOUL_MD, TOOLS_MD, TITAN_MD_FILENAME } from '../utils/constants.js';
@@ -178,6 +181,23 @@ export function verifyTaskCompletion(
 let currentSessionId: string | null = null;
 export function setCurrentSessionId(id: string | null): void { currentSessionId = id; }
 export function getCurrentSessionId(): string | null { return currentSessionId; }
+
+/**
+ * v8 TraceStore (Stage 1: RECORD) — production gate + seam, extracted as a
+ * testable wrapper. processMessage calls THIS instead of inlining the gate
+ * check, so the gate-spy test can import this wrapper and assert that
+ * ensureTracePersistence fires only when shouldPersistTraces(config) is true.
+ * Deleting the `if` here (the gate) makes the seam fire unconditionally and
+ * breaks the test — which is the wiring proof Honey requires.
+ *
+ * Flag-off (selfCompiling.enabled false, the default) is byte-identical to
+ * v7: no trace file is created, no observer is subscribed.
+ */
+export function initV8TracePersistence(config: TitanConfig): void {
+    if (shouldPersistTraces(config)) {
+        ensureTracePersistence();
+    }
+}
 
 // ── Register spawn_agent tool ────────────────────────────────────
 let spawnAgentRegistered = false;
@@ -1219,6 +1239,13 @@ export async function processMessage(
         const { setSessionGoal } = await import('./autonomyContext.js');
         setSessionGoal(session.id, overrides.goalContext);
     }
+    // v8 TraceStore (Stage 1: RECORD) — idempotent; persists every completed
+    // trace to $TITAN_HOME/traces/traces.jsonl via the tracer's onTraceEnd seam.
+    // Gated behind config.selfCompiling.record (default off) so flag-off is
+    // byte-identical to v7: no trace file is created, no observer is subscribed.
+    // The gate + seam live in initV8TracePersistence (testable wrapper) so the
+    // gate-spy test can prove the production call site honors the flag.
+    initV8TracePersistence(config);
     const trace = startTrace(session.id, message);
     // v4.4.5: accept a caller-provided strategy override. Phone calls
     // force 'direct' so vague conversational questions like "what are
@@ -2299,7 +2326,7 @@ export async function processMessage(
     trace.setRounds(loopResult.toolCallDetails.length);
     trace.setTokens(totalPromptTokens, totalCompletionTokens);
     for (const tc of loopResult.toolCallDetails) {
-        trace.toolCall(tc.name, tc.args, 0, tc.success, 0);
+        trace.toolCall(tc.name, tc.args, 0, tc.success, 0, tc.actionId);
     }
     trace.end(budgetExhausted ? 'failed' : 'completed', budgetExhausted ? 'budget exhausted' : undefined);
 

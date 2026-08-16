@@ -84,7 +84,7 @@ export class ClaudeCodeProvider extends LLMProvider {
                 resolve({
                     id: `claude-${Date.now()}`,
                     content: stdout.trim(),
-                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, measured: false },
                     finishReason: 'stop',
                     model: options.model || 'claude-code/default',
                 });

@@ -10,6 +10,8 @@
  * - Cost counts toward parent session budget
  */
 import { chat } from '../providers/router.js';
+import { mintActionId } from '../receipts/mint.js';
+import { calculateActualCost } from './costEstimator.js';
 import { executeTools, getToolDefinitions, type ToolResult } from './toolRunner.js';
 import {
     startSpawnTrajectory,
@@ -29,6 +31,13 @@ import { emitAgentEvent } from './agentEvents.js';
 import { formatCurrentDateContext } from './dateContext.js';
 
 const COMPONENT = 'SubAgent';
+
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
 
 /** Currently running sub-agent IDs (Set for accurate tracking, prevents counter desync) */
 const activeSubAgentIds = new Set<string>();
@@ -81,6 +90,26 @@ export interface SubAgentConfig {
     };
 }
 
+export interface TurnTelemetry {
+    /** Minted once per turn start; always present. */
+    actionId: string;
+    /** Model from the LAST returned response; absent only on zero-call exits. */
+    model?: string;
+    /** Diagnostic sum of prompt tokens from returned responses only. */
+    promptTokens: number;
+    /** Diagnostic sum of completion tokens from returned responses only. */
+    completionTokens: number;
+    /** Sum of actual costs from returned responses only. */
+    costUsd: number;
+    /** True only if every attempted provider call returned usage.measured === true. */
+    measured: boolean;
+    /** Provider chat() calls attempted (incremented before each await). */
+    providerCalls: number;
+    /** Provider chat() calls that returned a response. */
+    returnedCalls: number;
+    exit: 'completed' | 'provider-error' | 'depth-limit' | 'concurrency-limit' | 'timeout' | 'error';
+}
+
 export interface SubAgentResult {
     content: string;
     toolsUsed: string[];
@@ -89,6 +118,8 @@ export interface SubAgentResult {
     rounds: number;
     /** Whether the output passed validation checks */
     validated: boolean;
+    /** v8 Slice 3 — per-turn telemetry for trace/receipt join. */
+    telemetry: TurnTelemetry;
 }
 
 /**
@@ -403,6 +434,7 @@ Return the final draft as the response. If you saved it to a file, also return t
 export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentResult> {
     const titanConfig = loadConfig();
     const startTime = Date.now();
+    const turnActionId = mintActionId();
     const currentDepth = config.depth ?? 0;
     const subAgentsCfg = (titanConfig as Record<string, unknown>).subAgents as Record<string, unknown> | undefined;
     const maxDepth = (subAgentsCfg?.maxDepth as number) ?? 4; // Increased from 2 → 4 for multi-level task decomposition
@@ -416,6 +448,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             durationMs: 0,
             rounds: 0,
             validated: false,
+            telemetry: { actionId: turnActionId, promptTokens: 0, completionTokens: 0, costUsd: 0, measured: false, providerCalls: 0, returnedCalls: 0, exit: 'depth-limit' },
         };
     }
 
@@ -432,6 +465,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             durationMs: 0,
             rounds: 0,
             validated: false,
+            telemetry: { actionId: turnActionId, promptTokens: 0, completionTokens: 0, costUsd: 0, measured: false, providerCalls: 0, returnedCalls: 0, exit: 'concurrency-limit' },
         };
     }
 
@@ -602,6 +636,12 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
     let finalContent = '';
     let rounds = 0;
 
+    // v8 Slice 3 — telemetry accumulator local to this spawnSubAgent invocation.
+    const telemetry: TurnTelemetry = {
+        actionId: turnActionId, promptTokens: 0, completionTokens: 0, costUsd: 0,
+        measured: true, providerCalls: 0, returnedCalls: 0, exit: 'completed',
+    };
+
     // Phase 9: safety state tracking
     const toolHistory: Array<{ name: string; args: string; round: number }> = [];
     let lastContent = '';
@@ -643,13 +683,35 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
                 break;
             }
 
-            const response = await chat({
-                model,
-                messages,
-                tools: availableTools.length > 0 ? availableTools : undefined,
-                maxTokens: config.maxTokens ?? titanConfig.agent.maxTokens ?? 4096,
-                temperature: 0.2,
-            });
+            telemetry.providerCalls += 1;
+            let response;
+            try {
+                response = await chat({
+                    model,
+                    messages,
+                    tools: availableTools.length > 0 ? availableTools : undefined,
+                    maxTokens: config.maxTokens ?? titanConfig.agent.maxTokens ?? 4096,
+                    temperature: 0.2,
+                });
+            } catch (providerErr) {
+                telemetry.exit = 'provider-error';
+                telemetry.measured = false; // a throw means this call produced no full measured response
+                // No response returned: sums stay at returned responses only.
+                throw providerErr;
+            }
+            telemetry.returnedCalls += 1;
+            telemetry.model = response.model;
+            if (response.usage) {
+                telemetry.promptTokens += normalizeTokenCount(response.usage.promptTokens);
+                telemetry.completionTokens += normalizeTokenCount(response.usage.completionTokens);
+                telemetry.costUsd += calculateActualCost(response.model, {
+                    prompt: normalizeTokenCount(response.usage.promptTokens),
+                    completion: normalizeTokenCount(response.usage.completionTokens),
+                });
+                telemetry.measured = telemetry.measured && (response.usage.measured === true);
+            } else {
+                telemetry.measured = false;
+            }
 
             // No tool calls = done
             if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -840,6 +902,11 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             });
             trajectoryHandle = null;
         }
+        telemetry.exit = 'completed';
+        // Measured only if every attempted call returned a response with measured usage.
+        if (telemetry.providerCalls === 0 || telemetry.returnedCalls < telemetry.providerCalls) {
+            telemetry.measured = false;
+        }
         return {
             content: finalContent,
             toolsUsed: [...new Set(toolsUsed)],
@@ -847,6 +914,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             durationMs,
             rounds,
             validated,
+            telemetry,
         };
     } catch (err) {
         const durationMs = Date.now() - startTime;
@@ -871,6 +939,8 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             });
             trajectoryHandle = null;
         }
+        if (telemetry.exit === 'completed') telemetry.exit = 'error';
+        telemetry.measured = false; // any error exit invalidates the measured flag
         return {
             content: `Sub-agent error: ${(err as Error).message}`,
             toolsUsed: [...new Set(toolsUsed)],
@@ -878,6 +948,7 @@ export async function spawnSubAgent(config: SubAgentConfig): Promise<SubAgentRes
             durationMs,
             rounds,
             validated: false,
+            telemetry,
         };
     } finally {
         // beta.13 — defensive trajectory close in case neither

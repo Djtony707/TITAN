@@ -43,6 +43,8 @@ export interface Trace {
         durationMs: number;
         success: boolean;
         round: number;
+        /** Receipt action_id minted by toolRunner for this call (v8 TraceStore join key) */
+        actionId?: string;
     }>;
     rounds: number;
     model?: string;
@@ -55,7 +57,7 @@ export interface TraceHandle {
     traceId: string;
     span: (name: string, data?: Record<string, unknown>) => void;
     endSpan: (name: string) => void;
-    toolCall: (tool: string, args: Record<string, unknown>, durationMs: number, success: boolean, round: number) => void;
+    toolCall: (tool: string, args: Record<string, unknown>, durationMs: number, success: boolean, round: number, actionId?: string) => void;
     setModel: (model: string) => void;
     setRounds: (rounds: number) => void;
     setTokens: (prompt: number, completion: number) => void;
@@ -67,6 +69,11 @@ export interface TraceHandle {
 const MAX_TRACES = 500;
 const traces: Map<string, Trace> = new Map();
 const traceOrder: string[] = [];
+
+// v8 TraceStore seam: observers notified synchronously when a trace ends.
+// Same subscribe/best-effort pattern as receipts/store.ts:subscribeReceipts.
+type TraceEndSubscriber = (t: Trace) => void;
+const traceEndSubscribers = new Set<TraceEndSubscriber>();
 
 function evict(): void {
     while (traceOrder.length > MAX_TRACES) {
@@ -113,8 +120,8 @@ export function startTrace(sessionId: string, message: string): TraceHandle {
             }
         },
 
-        toolCall(tool: string, args: Record<string, unknown>, durationMs: number, success: boolean, round: number) {
-            trace.toolCalls.push({ tool, args, durationMs, success, round });
+        toolCall(tool: string, args: Record<string, unknown>, durationMs: number, success: boolean, round: number, actionId?: string) {
+            trace.toolCalls.push({ tool, args, durationMs, success, round, ...(actionId ? { actionId } : {}) });
             logger.debug(COMPONENT, `[${traceId}] round=${round} tool=${tool} ${success ? 'OK' : 'FAIL'} ${durationMs}ms`);
         },
 
@@ -128,6 +135,14 @@ export function startTrace(sessionId: string, message: string): TraceHandle {
             trace.status = status;
             trace.error = error;
             logger.info(COMPONENT, `[${traceId}] Trace ${status}: ${trace.rounds} rounds, ${trace.toolCalls.length} tools, ${trace.totalMs}ms`);
+            // v8 TraceStore seam: notify observers (persistence, recognizer)
+            // after the trace is finalized. Subscribers are best-effort —
+            // a throwing observer must never affect the agent loop.
+            for (const cb of traceEndSubscribers) {
+                try {
+                    cb(trace);
+                } catch { /* observers must not affect tracing */ }
+            }
         },
     };
 
@@ -137,6 +152,18 @@ export function startTrace(sessionId: string, message: string): TraceHandle {
 /** Get a specific trace by ID */
 export function getTrace(traceId: string): Trace | undefined {
     return traces.get(traceId);
+}
+
+/**
+ * v8 TraceStore seam: subscribe to trace completion. The callback fires
+ * synchronously inside TraceHandle.end() with the finalized trace.
+ * Returns an unsubscribe function. Additive — no existing behavior changes.
+ */
+export function onTraceEnd(cb: (t: Trace) => void): () => void {
+    traceEndSubscribers.add(cb);
+    return () => {
+        traceEndSubscribers.delete(cb);
+    };
 }
 
 /** List recent traces (newest first) */

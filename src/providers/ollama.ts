@@ -19,6 +19,17 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'Ollama';
 
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 /**
  * Per-model context window map for Ollama cloud models.
  * Auto-configures num_ctx to each model's actual maximum to prevent truncation.
@@ -778,9 +789,10 @@ export class OllamaProvider extends LLMProvider {
             content,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: {
-                promptTokens: (data.prompt_eval_count as number) || 0,
-                completionTokens: (data.eval_count as number) || 0,
-                totalTokens: ((data.prompt_eval_count as number) || 0) + ((data.eval_count as number) || 0),
+                promptTokens: normalizeTokenCount(data.prompt_eval_count),
+                completionTokens: normalizeTokenCount(data.eval_count),
+                totalTokens: normalizeTokenCount(data.prompt_eval_count) + normalizeTokenCount(data.eval_count),
+                measured: isFiniteNonNeg(data.prompt_eval_count) && isFiniteNonNeg(data.eval_count),
             },
             finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
             model: `ollama/${model}`,

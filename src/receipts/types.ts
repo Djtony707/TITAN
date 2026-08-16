@@ -3,6 +3,7 @@ export const RECEIPT_KINDS = [
     'mission_start',
     'mission_end',
     'agent_spawn',
+    'agent_turn',
     'file_write',
     'approval_request',
     'approval_decision',

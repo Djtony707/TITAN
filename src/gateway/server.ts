@@ -84,6 +84,9 @@ import { createTracesRouter } from './routes/traces.js';
 import { createCheckpointsRouter } from './routes/checkpoints.js';
 import { createCompaniesRouter } from './routes/companies.js';
 import { createCommandPostRouter } from './routes/commandPost.js';
+import { createCompanyRouter } from './routes/company.js';
+import { createRecordRouter } from './routes/record.js';
+import { restartFieldsFor, applyCompanyConfig } from './restartPolicy.js';
 import { createMissionsRouter } from './routes/missions.js';
 import { startMissionWork, handleUserMessage as missionHandleUserMessage, handleStatusChange as missionHandleStatusChange, reattachMissionBridgesOnStartup } from '../agent/missionLifecycle.js';
 import { createAdminRouter } from './routes/adminRouter.js';
@@ -116,8 +119,8 @@ function getCpuLoad(): number {
     return Math.min(1, avg / cores);
 }
 
-/** Fields that require a gateway restart to take effect */
-const RESTART_REQUIRED_PATTERNS = ['channels.*', 'gateway.auth.*', 'logging.level'];
+/** Fields that require a gateway restart to take effect — the policy
+ *  lives in restartPolicy.ts so it is a pure, directly tested function. */
 
 /** Module-level HTTP server reference (allows stopGateway to close it) */
 let httpServer: ReturnType<typeof createServer> | null = null;
@@ -1341,8 +1344,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
   // Legacy dashboard (kept during migration, also fallback if React UI not built)
   app.get('/legacy', (_req, res) => {
+    const cfg = loadConfig();
+    const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
     res.setHeader('Content-Type', 'text/html');
-    res.send(getMissionControlHTML());
+    res.send(getMissionControlHTML(v8Enabled));
   });
 
   // Root route: React SPA or legacy dashboard
@@ -1353,8 +1358,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       res.setHeader('Expires', '0');
       res.send(cachedIndexHtml);
     } else {
+      const cfg = loadConfig();
+      const v8Enabled = !!(cfg as any).selfCompiling?.enabled;
       res.setHeader('Content-Type', 'text/html');
-      res.send(getMissionControlHTML());
+      res.send(getMissionControlHTML(v8Enabled));
     }
   });
 
@@ -2307,6 +2314,23 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // ── Company API (Paperclip-style) ─────────────────────────────
   app.use('/api/companies', createCompaniesRouter());
 
+  // ── v8 Company Room API (Slice 1) ──────────────────────────────
+  // Guarded by company.enabled flag — 404s when off (byte-identical v7).
+  // Distinct from the v7 /api/companies router above.
+  // v8 company layer: mount NOTHING when disabled — unmatched /api/company
+  // requests then take Express's normal v7 fall-through path (re-review fix,
+  // event cb5b802d). The router keeps its own internal guard as defense in depth.
+  if (loadConfig().company?.enabled) {
+    app.use('/api/company', createCompanyRouter());
+  }
+
+  // ── v8 Record API (Slice 3) ──────────────────────────────────
+  // Guarded by record.enabled flag — 404s when off (byte-identical v7).
+  // The router keeps its own internal guard as defense in depth.
+  if (loadConfig().record?.enabled) {
+    app.use('/api/record', createRecordRouter());
+  }
+
   // ── Command Post API (Agent Governance) ───────────────────
   app.use('/api/command-post', createCommandPostRouter());
 
@@ -2317,6 +2341,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     onMissionCreated: (mission) => startMissionWork(mission),
     onUserMessage: (id, content) => missionHandleUserMessage(id, content),
     onStatusChange: (id, status) => missionHandleStatusChange(id, status),
+    onNudge: async (missionId) => {
+        const { getMission } = await import('../agent/missionRoom.js');
+        const room = getMission(missionId);
+        if (!room?.goalId) return null;
+        const { tickDriver } = await import('../agent/goalDriver.js');
+        const phase = await tickDriver(room.goalId);
+        return phase;
+    },
   }));
   app.use('/api/telephony', createTelephonyRouter());
   // v6.1.0-alpha.25 — on every server boot, re-attach the per-mission
@@ -3390,6 +3422,14 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         maxConcurrentAgents: (cfg as Record<string, any>).commandPost?.maxConcurrentAgents ?? 10,
         checkoutTimeoutMs: (cfg as Record<string, any>).commandPost?.checkoutTimeoutMs ?? 300000,
       },
+      company: {
+        enabled: Boolean((cfg as Record<string, any>).company?.enabled),
+        name: (cfg as Record<string, any>).company?.name ?? '',
+        mission: (cfg as Record<string, any>).company?.mission ?? '',
+        queue: {
+          enabled: Boolean((cfg as Record<string, any>).company?.queue?.enabled),
+        },
+      },
     });
   });
 
@@ -3582,6 +3622,17 @@ export async function startGateway(options?: { port?: number; host?: string; ver
         if (cp.enabled !== undefined) draft.commandPost.enabled = Boolean(cp.enabled);
         changedFields.push('commandPost');
       }
+      // v8 company layer + queue sub-flag — PRECISE changed-field names
+      // ('company.enabled', 'company.queue.enabled', …) so the restart
+      // contract below distinguishes mode flips from cosmetic edits
+      // (patch-5 review 8e7ad98b #2). Both flags are restart-required:
+      // the company service caches one dispatcher mode per process.
+      if (body.company !== undefined && typeof body.company === 'object') {
+        const co = body.company as Record<string, unknown>;
+        if (!(draft as Record<string, unknown>).company) (draft as Record<string, unknown>).company = {};
+        const dco = (draft as Record<string, unknown>).company as Record<string, unknown>;
+        changedFields.push(...applyCompanyConfig(co, dco));
+      }
       if (body.mesh !== undefined && typeof body.mesh === 'object') {
         const m = body.mesh as Record<string, unknown>;
         if (!draft.mesh) (draft as Record<string, unknown>).mesh = {};
@@ -3675,7 +3726,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
           'gatewayPassword', 'gatewayToken', 'channels', 'googleOAuthClientId', 'googleOAuthClientSecret',
           'homeAssistantUrl', 'homeAssistantToken', 'voice', 'nvidia', 'organism',
           'autonomy', 'selfMod', 'commandPost', 'mesh', 'autopilot', 'brain', 'mcp',
-          'training', 'teams', 'tunnel', 'vault', 'capsolver', 'deliberation', 'selfImprove', 'memory'];
+          'training', 'teams', 'tunnel', 'vault', 'capsolver', 'deliberation', 'selfImprove', 'memory', 'company'];
         res.status(400).json({ error: 'No recognized fields in request body', validFields });
         return;
       }
@@ -3683,14 +3734,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       updateConfig(draft);
 
       // Determine which changed fields require a restart
-      const restartFields = changedFields.filter(field =>
-        RESTART_REQUIRED_PATTERNS.some(pattern => {
-          if (pattern.endsWith('.*')) {
-            return field.startsWith(pattern.slice(0, -1));
-          }
-          return field === pattern;
-        })
-      );
+      const restartFields = restartFieldsFor(changedFields);
 
       res.json({ ok: true, restartRequired: restartFields.length > 0, restartFields });
     } catch (e) {

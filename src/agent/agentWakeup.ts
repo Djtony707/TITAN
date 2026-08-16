@@ -301,6 +301,7 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
                 durationMs: Date.now() - startMs,
                 rounds: 1,
                 validated: true,
+                telemetry: { actionId: 'noop', promptTokens: 0, completionTokens: 0, costUsd: 0, measured: false, providerCalls: 0, returnedCalls: 0, exit: 'completed' as const },
             };
         } else if (req.mode === 'external') {
             // ── External adapter path: spawn CLI process ──
@@ -325,6 +326,7 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
                 durationMs: adapterResult.durationMs,
                 rounds: 1,
                 validated: true,
+                telemetry: { actionId: 'noop', promptTokens: 0, completionTokens: 0, costUsd: 0, measured: false, providerCalls: 0, returnedCalls: 0, exit: 'completed' as const },
             };
         } else {
             // ── Sub-agent path: isolated sub-agent execution ──

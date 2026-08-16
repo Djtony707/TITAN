@@ -19,6 +19,17 @@ import { clampMaxTokens } from './modelCapabilities.js';
 
 const COMPONENT = 'OpenAI';
 
+/** Normalize a provider-reported token count to a finite nonnegative number.
+ *  Invalid/missing values become 0 so numeric telemetry stays safe even when
+ *  the provider does not report measured usage. */
+function normalizeTokenCount(v: unknown): number {
+    return (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : 0;
+}
+
+function isFiniteNonNeg(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 export class OpenAIProvider extends LLMProvider {
     readonly name = 'openai';
     readonly displayName = 'OpenAI (GPT)';
@@ -148,9 +159,10 @@ export class OpenAIProvider extends LLMProvider {
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: usage
                 ? {
-                    promptTokens: usage.prompt_tokens,
-                    completionTokens: usage.completion_tokens,
-                    totalTokens: usage.total_tokens,
+                    promptTokens: normalizeTokenCount(usage.prompt_tokens),
+                    completionTokens: normalizeTokenCount(usage.completion_tokens),
+                    totalTokens: normalizeTokenCount(usage.total_tokens),
+                    measured: isFiniteNonNeg(usage.prompt_tokens) && isFiniteNonNeg(usage.completion_tokens),
                 }
                 : undefined,
             finishReason: toolCalls.length > 0 ? 'tool_calls' : (choice.finish_reason as 'stop' | 'length') || 'stop',

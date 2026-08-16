@@ -31,6 +31,13 @@ import type {
   CPApproval,
   CPRun,
   OrgNode,
+  CompanyEvent,
+  CompanyStatus,
+  CompanyRoomPage,
+  QueueFold,
+  QueuePresenceResponse,
+  RecordTasksResponse,
+  RecordTurnsResponse,
 } from './types';
 
 import { trackEvent } from './telemetry';
@@ -933,6 +940,96 @@ export async function deleteCompany(id: string): Promise<{ success: boolean }> {
   return request(`/api/companies/${id}`, { method: 'DELETE' });
 }
 
+// ---- v8 Company Room (Slice 1) ----
+// These hit the v8 company gateway router at /api/company/*, which is
+// guarded by the `company.enabled` config flag. When the flag is off,
+// these endpoints return 404.
+
+export async function getCompanyStatus(): Promise<CompanyStatus> {
+  return request('/api/company');
+}
+
+export async function createV8Company(opts: { name?: string; mission?: string }): Promise<CompanyStatus> {
+  return request('/api/company', { method: 'POST', body: JSON.stringify(opts) });
+}
+
+export async function getCompanyRoom(after = 0, limit = 100): Promise<CompanyRoomPage> {
+  return request(`/api/company/room?after=${after}&limit=${limit}`);
+}
+
+export async function postCompanyMessage(text: string, replyTo?: string): Promise<CompanyEvent> {
+  return request('/api/company/room', {
+    method: 'POST',
+    body: JSON.stringify({ text, replyTo }),
+  });
+}
+
+export async function delegateCompanyTask(agentId: string, spec: string): Promise<CompanyEvent> {
+  return request('/api/company/delegate', {
+    method: 'POST',
+    body: JSON.stringify({ agentId, spec }),
+  });
+}
+
+// ---- v8 Work Queue (Slice 2) ----
+// These hit the v8 company queue gateway router at /api/company/queue/* and
+// /api/company/presence, guarded by the `company.queue.enabled` config flag
+// (default false). When the flag is off, these endpoints return 404.
+// Per V8_SLICE2_DESIGN.md §8: the queue is a fold over the event log —
+// these endpoints read derived state; writes go through the event log.
+// Event shapes are exactly the slice-1 wire format plus the 8 new kinds.
+
+/** Get the queue fold: slots, commitments, counts. (GET /api/company/queue) */
+export async function getQueueFold(): Promise<QueueFold> {
+  return request('/api/company/queue');
+}
+
+/** Get derived presence at a point in time. (GET /api/company/presence?now=) */
+export async function getQueuePresence(now?: number): Promise<QueuePresenceResponse> {
+  const qs = now !== undefined ? `?now=${now}` : '';
+  return request(`/api/company/presence${qs}`);
+}
+
+/** Lift a hold on a slot (user only — per §1 hold-release rules). */
+export async function liftHold(taskRef: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/lift-hold', {
+    method: 'POST',
+    body: JSON.stringify({ taskRef }),
+  });
+}
+
+/** Lift/clear a block on a slot (setter or user — per §1 block-release rules). */
+export async function clearBlock(taskRef: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/clear-block', {
+    method: 'POST',
+    body: JSON.stringify({ taskRef }),
+  });
+}
+
+/** Close a commitment (the agent or user who opened it). */
+export async function closeCommitment(commitmentId: string, note?: string): Promise<{ success: boolean }> {
+  return request('/api/company/queue/commitment/close', {
+    method: 'POST',
+    body: JSON.stringify({ id: commitmentId, note }),
+  });
+}
+
+// ---- v8 RECORD (Slice 3) ----
+
+/** Fetch per-task token/cost summary + task list. */
+export async function getRecordTasks(): Promise<RecordTasksResponse> {
+  return request('/api/record/tasks');
+}
+
+/** Fetch per-turn drill-down, optionally filtered by taskRef. */
+export async function getRecordTurns(taskRef?: string, limit?: number): Promise<RecordTurnsResponse> {
+  const params = new URLSearchParams();
+  if (taskRef) params.set('taskRef', taskRef);
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return request(`/api/record/turns${qs ? `?${qs}` : ''}`);
+}
+
 // ---- Session Management ----
 
 export async function createSession(): Promise<{ id: string }> {
@@ -1360,4 +1457,30 @@ export async function runTests(scope?: string): Promise<{ runId: string; started
     method: 'POST',
     body: JSON.stringify(scope ? { scope } : {}),
   });
+}
+
+/** Slice 8: the celebration feed. (GET /api/company/growth?limit=) */
+export async function getGrowthMoments(limit = 20): Promise<{ moments: GrowthMoment[] }> {
+  return request(`/api/company/growth?limit=${limit}`);
+}
+
+/** Slice 8: the standup-shaped digest. (GET /api/company/huddle?hours=) */
+export async function getHuddle(hours = 24): Promise<HuddleDigest> {
+  return request(`/api/company/huddle?hours=${hours}`);
+}
+
+export interface GrowthMoment {
+  ts: number;
+  kind: 'hired' | 'first-accept' | 'lesson' | 'streak' | 'retired';
+  agentId: string;
+  text: string;
+}
+
+export interface HuddleDigest {
+  generatedAt: number;
+  windowStartTs: number;
+  agents: Array<{ agentId: string; displayName: string; accepted: number; open: number; lessons: number }>;
+  freshLessons: Array<{ agentId: string; text: string }>;
+  rosterChanges: string[];
+  rendered: string;
 }

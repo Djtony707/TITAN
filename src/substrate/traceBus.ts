@@ -135,6 +135,22 @@ export interface SomaProposalEvent {
     };
 }
 
+/**
+ * v8 company event payload — a signed event row from the append-only
+ * company event log. Emitted on 'company:event' whenever the log
+ * appends. See V8_SLICE1_DESIGN.md §1 and src/company/log.ts.
+ */
+export interface CompanyEventPayload {
+    seq: number;
+    id: string;
+    kind: string;
+    ts: number;
+    actor: string;
+    sig: string;
+    prevHash: string;
+    payload: Record<string, unknown>;
+}
+
 /** Full topic → payload map. Extend here; both emit and on are typed from this. */
 export interface TraceBusTopics {
     'turn:pre': TurnPreEvent;
@@ -145,6 +161,13 @@ export interface TraceBusTopics {
     'hormone:update': HormoneUpdateEvent;
     'pressure:threshold': PressureThresholdEvent;
     'soma:proposal': SomaProposalEvent;
+    /**
+     * v8 company event — fired when any signed event lands in the company
+     * append-only log. Payload is the CompanyEvent row (seq, id, kind, ts,
+     * actor, sig, payload). The gateway SSE endpoint re-broadcasts this
+     * to the Mission Control room UI. See src/gateway/routes/company.ts.
+     */
+    'company:event': CompanyEventPayload;
 }
 
 export type TraceBusTopic = keyof TraceBusTopics;

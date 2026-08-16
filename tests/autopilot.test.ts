@@ -48,6 +48,17 @@ vi.mock('node-cron', () => ({
     validate: (...args: unknown[]) => mockCronValidate(...args),
 }));
 
+// v8 Slice 4 master-off proof: records if recognizeCluster is ever imported.
+// Production dynamically imports it inside runRecognizeAutopilot; with the
+// selfCompiling.enabled=false gate the scheduler must never reach that import.
+let { wasRecognizeClusterImported } = vi.hoisted(() => ({ wasRecognizeClusterImported: false }));
+vi.mock('../src/agent/recognizeCluster.js', () => {
+    wasRecognizeClusterImported = true;
+    return {
+        runNightlyClustering: () => ({ clusters: [], newClusters: [], trajectoryCount: 0 }),
+    };
+});
+
 // ─── Helpers ────────────────────────────────────────────────────
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
@@ -415,6 +426,34 @@ describe('Autopilot Engine', () => {
             expect(result.run.skipped).toBe(true);
             expect(result.run.skipReason).toBe('empty_checklist');
             expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should skip recognize mode when selfCompiling.enabled=false (master flag off)', async () => {
+            mockLoadConfig.mockReturnValue({
+                ...makeConfig({ autopilot: { mode: 'recognize', skipIfEmpty: false } }),
+                selfCompiling: { enabled: false },
+            });
+            mockExistsSync.mockReturnValue(false);
+            const importedBefore = wasRecognizeClusterImported;
+            const result = await runAutopilotNow();
+            expect(result.run.skipped).toBe(true);
+            expect(result.run.skipReason).toBe('self_compiling_disabled');
+            expect(result.run.classification).toBe('ok');
+            // PROOF: the scheduler never reached the recognizeCluster import.
+            expect(wasRecognizeClusterImported).toBe(importedBefore);
+            expect(mockProcessMessage).not.toHaveBeenCalled();
+        });
+
+        it('should run recognize mode when selfCompiling.enabled=true (master flag on)', async () => {
+            mockLoadConfig.mockReturnValue({
+                ...makeConfig({ autopilot: { mode: 'recognize', skipIfEmpty: false } }),
+                selfCompiling: { enabled: true },
+            });
+            mockExistsSync.mockReturnValue(false);
+            const result = await runAutopilotNow();
+            expect(result.run.skipped).toBeUndefined();
+            expect(result.run.summary).toContain('RECOGNIZE');
+            expect(wasRecognizeClusterImported).toBe(true);
         });
 
         it('should run when checklist is empty and skipIfEmpty is false', async () => {

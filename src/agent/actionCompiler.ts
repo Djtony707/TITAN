@@ -64,10 +64,14 @@ export function compileActions(text: string): CompiledAction[] {
         }
 
         // ACTION: write_file /path followed by CONTENT: ... END_CONTENT
-        const writeMatch = line.match(/^ACTION:\s*(?:write_file|append_file)\s+(.+)/i);
+        // Capture the verb token itself (group 1) rather than testing the whole
+        // line for 'append' — otherwise a write_file directive whose PATH contains
+        // 'append' (e.g. "ACTION: write_file /logs/appendix.txt") would be
+        // misdiscriminated as append_file.
+        const writeMatch = line.match(/^ACTION:\s*(write_file|append_file)\s+(.+)/i);
         if (writeMatch) {
-            const toolName = line.toLowerCase().includes('append') ? 'append_file' : 'write_file';
-            const path = writeMatch[1].trim();
+            const toolName = writeMatch[1].toLowerCase() === 'append_file' ? 'append_file' : 'write_file';
+            const path = writeMatch[2].trim();
             i++;
             // Look for CONTENT: block
             if (i < lines.length && lines[i].trim().startsWith('CONTENT:')) {
@@ -90,6 +94,15 @@ export function compileActions(text: string): CompiledAction[] {
             i++;
             let target = '';
             let replacement = '';
+            // Whether the REPLACE: block was explicitly present in the directive.
+            // We track this as its own boolean instead of inferring "was REPLACE
+            // seen?" from `replacement === ''`, because an explicit empty
+            // REPLACE: block (REPLACE: immediately followed by END_EDIT) is a
+            // legitimate directive — it means "delete this text" — and must stay
+            // distinguishable from a REPLACE: block that never appeared at all
+            // (a truncated/malformed directive), which we reject below instead of
+            // silently compiling into an unintended deletion.
+            let sawReplaceBlock = false;
             // FIND: block
             if (i < lines.length && lines[i].trim().startsWith('FIND:')) {
                 i++;
@@ -102,6 +115,7 @@ export function compileActions(text: string): CompiledAction[] {
             }
             // REPLACE: block
             if (i < lines.length && lines[i].trim().startsWith('REPLACE:')) {
+                sawReplaceBlock = true;
                 i++;
                 const replaceLines: string[] = [];
                 while (i < lines.length && !lines[i].trim().startsWith('END_EDIT')) {
@@ -111,8 +125,10 @@ export function compileActions(text: string): CompiledAction[] {
                 replacement = replaceLines.join('\n');
                 i++; // skip END_EDIT
             }
-            if (target) {
+            if (target && sawReplaceBlock) {
                 actions.push({ tool: 'edit_file', args: { path, target, replacement } });
+            } else {
+                logger.warn(COMPONENT, `Rejected malformed edit_file directive for ${path}: ${!target ? 'missing FIND block' : 'missing REPLACE block'}`);
             }
             continue;
         }

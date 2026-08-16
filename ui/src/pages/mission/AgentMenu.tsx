@@ -35,9 +35,11 @@ import {
   setAgentModelOverride,
   setAgentPaused,
   setMissionMode,
+  nudgeMission,
   type MissionMember,
   type MissionRoom,
 } from '@/api/missions';
+import { performNudge, nudgeHint } from './nudgeLogic';
 
 interface ModelOption { id: string; label: string; provider: string }
 
@@ -87,10 +89,13 @@ export function AgentMenu({
     setBusy(true);
     setError(null);
     try {
-      await postMessage(room.id, `@${member.name} quick check-in — how's it going? Anything I can clear for you?`);
-      onClose();
-    } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
+      await performNudge(room, member, { nudgeMission, postMessage }, {
+        onClose,
+        onError: (msg) => setError(msg),
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function sendCompose(prefix: string) {
@@ -190,7 +195,7 @@ export function AgentMenu({
               <ActionTile
                 icon="👋"
                 label="Nudge"
-                hint="A friendly check-in"
+                hint={nudgeHint(room, member)}
                 onClick={nudge}
                 disabled={busy}
               />

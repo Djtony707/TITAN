@@ -3,6 +3,7 @@
  * Tests React SPA serving, all admin panel API endpoints, voice health,
  * auth middleware, SSE streaming, and error handling.
  */
+import { TITAN_VERSION } from '../src/utils/constants.js';
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { existsSync } from "fs";
 
@@ -385,7 +386,7 @@ describe("Mission Control v2", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.status).toBe("ok");
-      expect(body.version).toBe("7.2.2");
+      expect(body.version).toBe(TITAN_VERSION);
       expect(typeof body.uptime).toBe("number");
     });
 
@@ -393,7 +394,7 @@ describe("Mission Control v2", () => {
       const res = await fetch(`${BASE}/api/stats`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.version).toBe("7.2.2");
+      expect(body.version).toBe(TITAN_VERSION);
       expect(typeof body.uptime).toBe("number");
     });
   });

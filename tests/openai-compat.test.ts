@@ -191,8 +191,29 @@ describe('OpenAICompatProvider', () => {
             expect(result.id).toBe('chatcmpl-123');
             expect(result.content).toBe('Hello world');
             expect(result.finishReason).toBe('stop');
-            expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+            expect(result.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15, measured: true });
             expect(result.model).toBe('test-provider/test-model-1');
+        });
+
+        it('should mark measured=false when usage counts are missing or non-numeric', async () => {
+            const provider = makeProvider();
+            for (const usage of [
+                { prompt_tokens: 10 },
+                { completion_tokens: 5 },
+                { prompt_tokens: -1, completion_tokens: 5 },
+                { prompt_tokens: 'ten', completion_tokens: 5 },
+                { prompt_tokens: NaN, completion_tokens: 5 },
+                { prompt_tokens: Infinity, completion_tokens: 5 },
+            ]) {
+                mockFetchWithRetry.mockResolvedValueOnce(makeJsonResponse({
+                    id: 'c-missing',
+                    choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+                    usage,
+                }));
+                const result = await provider.chat({ messages: [{ role: 'user', content: 'Hi' }] });
+                expect(result.usage).toBeDefined();
+                expect(result.usage!.measured).toBe(false);
+            }
         });
 
         it('should strip provider prefix from model name', async () => {

@@ -728,6 +728,315 @@ export interface OrgNode {
   reports: OrgNode[];
 }
 
+// ---- v8 Company Room (Slice 1) ----
+
+/**
+ * A single signed event in the v8 company append-only event log.
+ * Kinds (Slice 1): company.created, agent.minted, room.message,
+ * task.delegated, task.result, task.checked.
+ *
+ * Signature covers the canonical envelope: id | prevHash | kind | ts | actor | payload
+ * (per Fizz's chain binding — sha256 of prev sig+id, 'genesis' for first event).
+ */
+export interface CompanyEvent {
+  /** Total order sequence number (SQLite AUTOINCREMENT) */
+  seq: number;
+  /** UUID */
+  id: string;
+  /** Event kind — slice-1 kinds plus slice-2 queue kinds (when queue.enabled) */
+  kind: 'company.created' | 'agent.minted' | 'room.message' | 'task.delegated' | 'task.result' | 'task.checked'
+    | 'task.started' | 'task.retry' | 'task.blocked' | 'task.unblocked'
+    | 'hold.set' | 'hold.lifted' | 'commitment.opened' | 'commitment.closed';
+  /** ms epoch */
+  ts: number;
+  /** agent id (pubkey hex) or 'user' */
+  actor: string;
+  /** ed25519 signature over canonical envelope (id | prevHash | kind | ts | actor | payload) */
+  sig: string;
+  /** Hash of previous event (sha256 of prev sig+id), 'genesis' for first */
+  prevHash: string;
+  /** JSON, kind-specific */
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Agent in the v8 company crew.
+ * Wire contract matches service.ts:getCompanyStatus exactly:
+ * { agentId, displayName, role, charter }.
+ */
+export interface CompanyAgent {
+  /** Agent pubkey hex — the identity key from mint */
+  agentId: string;
+  /** Human-readable name from the persona pack */
+  displayName: string;
+  /** Role in the company (CEO, Builder, Scout, etc.) */
+  role: string;
+  /** Charter / system prompt from persona pack */
+  charter: string;
+}
+
+/** Company status response from GET /api/company */
+export interface CompanyStatus {
+  exists: boolean;
+  name?: string;
+  mission?: string;
+  createdAt?: number;
+  agents: CompanyAgent[];
+  eventCount: number;
+}
+
+/** Paged room events response from GET /api/company/room */
+export interface CompanyRoomPage {
+  events: CompanyEvent[];
+  after: number;
+  limit: number;
+}
+
+// ---- v8 RECORD (Slice 3) ----
+
+/** Per-turn record — a trace span joined with its receipt. */
+export interface TurnRecord {
+  actionId: string;
+  taskRef?: string;
+  attempt?: number;
+  agentId?: string;
+  role?: string;
+  startedAt: string;
+  durationMs: number;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  toolsUsed: string[];
+  ok: boolean;
+  exit?: string;
+  usageMeasured: boolean;
+  receiptKind?: string;
+  receiptStatus?: string;
+  receiptSummary?: string;
+}
+
+/** Per-task aggregate — turns grouped by taskRef. */
+export interface TaskRecord {
+  taskRef: string;
+  attempts: number;
+  turns: TurnRecord[];
+  totalTokens: number;
+  totalCostUsd: number;
+  measuredTurns: number;
+  unmeasuredTurns: number;
+  firstStartedAt: string;
+  lastDurationMs: number;
+  allOk: boolean;
+}
+
+/** Aggregate summary over all recorded turns. */
+export interface RecordSummary {
+  totalTasks: number;
+  totalTurns: number;
+  measuredTurns: number;
+  unmeasuredTurns: number;
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalCostUsd: number;
+  avgTokensPerTask: number;
+  avgCostPerTask: number;
+}
+
+/** GET /api/record/tasks response */
+export interface RecordTasksResponse {
+  summary: RecordSummary;
+  tasks: TaskRecord[];
+}
+
+/** GET /api/record/turns response */
+export interface RecordTurnsResponse {
+  turns: TurnRecord[];
+  count: number;
+  total: number;
+}
+
+// ---- v8 Work Queue (Slice 2) ----
+
+/**
+ * Task slot state in the work queue.
+ * Derived from the event log fold — never self-reported.
+ *
+ * State machine (per V8_SLICE2_DESIGN.md):
+ *   queued → running → done (checked)
+ *                 ↗ blocked → unblocked → running
+ *   queued → held → (lifted) → queued
+ *   any nonterminal → discarded (maintenance only)
+ */
+export type QueueSlotState =
+  | 'queued'
+  | 'running'
+  | 'reviewing'
+  | 'blocked'
+  | 'held'
+  | 'done'
+  | 'discarded';
+
+/**
+ * A single task slot in the work queue, derived from the event log fold.
+ * The queue is one-lane: at most one slot is 'running' at a time.
+ */
+export interface QueueSlot {
+  /** Slot number (sequential, from the task.delegated event order) */
+  slot: number;
+  /** Event id of the originating task.delegated event */
+  taskRef: string;
+  /** Current state of the slot */
+  state: QueueSlotState;
+  /** Task spec text from the delegation */
+  spec: string;
+  /** Owner agent id (pubkey hex) or 'user' */
+  owner: string;
+  /** Owner display name (resolved by the backend from crew) */
+  ownerName?: string;
+  /** Owner role */
+  ownerRole?: string;
+  /** Current attempt number (starts at 1) */
+  attempt: number;
+  /** Previous attempt verdict if retried (e.g. 'needs-work') */
+  prevVerdict?: string;
+  /** ms epoch when the slot entered its current state */
+  stateSince: number;
+  /** True if the owner's model quota is exhausted / cannot start */
+  ownerUnavailable?: boolean;
+  /** Reason text if owner is unavailable */
+  ownerUnavailableReason?: string;
+  /** Block info if state is 'blocked' */
+  block?: {
+    /** Event id of the task.blocked event */
+    blockRef: string;
+    /** Who set the block: 'watchman' | 'owner' */
+    setter: string;
+    /** Reason: 'stalled' | custom */
+    reason: string;
+    /** ms epoch when the block was set */
+    at: number;
+    /** True if the supervisor can auto-clear this (watchman stalled) */
+    autoClearable?: boolean;
+  };
+  /** Hold info if state is 'held' */
+  hold?: {
+    /** Event id of the hold.set event */
+    holdRef: string;
+    /** Who set the hold: 'user' | 'watchman' */
+    setter: string;
+    /** Reason text */
+    reason: string;
+    /** ms epoch when the hold was set */
+    at: number;
+  };
+  /** Check verdict if state is 'done' */
+  verdict?: string;
+  /** Check note if state is 'done' */
+  verdictNote?: string;
+  /** Last receipt/evidence description (e.g. "file written · 2 min ago") */
+  lastEvidence?: string;
+}
+
+/**
+ * Agent presence derived from queue state + receipts.
+ * Per V8_SLICE2_DESIGN.md §6: pure presenceAt(now) — never self-reported.
+ * Priority: blocked > stuck > working > waiting > idle
+ */
+export type PresenceStatus = 'working' | 'blocked' | 'stuck' | 'waiting' | 'idle';
+
+/**
+ * Derived presence for a single crew member.
+ */
+export interface QueuePresence {
+  /** Agent id (pubkey hex) */
+  agentId: string;
+  /** Display name from crew */
+  displayName: string;
+  /** Role from crew */
+  role: string;
+  /** Derived presence status */
+  status: PresenceStatus;
+  /** What the agent is currently doing (derived from queue slot) */
+  activity: string;
+  /** Human-readable derivation note (e.g. "last receipt 2 min ago") */
+  derived: string;
+}
+
+/**
+ * A commitment (first-class open/closed event).
+ * Per V8_ARCHITECTURE.md §2.5.1: "I'll loop back on X" creates an obligation.
+ */
+export interface QueueCommitment {
+  /** Event id of the commitment.opened event */
+  id: string;
+  /** Agent who made the commitment */
+  agent: string;
+  /** Agent display name */
+  agentName?: string;
+  /** Commitment text */
+  text: string;
+  /** ms epoch when opened */
+  openedAt: number;
+  /** ms epoch deadline, if set */
+  dueAt?: number;
+  /** True if overdue (derived: now > dueAt and not closed) */
+  overdue?: boolean;
+  /** True if closed */
+  closed: boolean;
+  /** ms epoch when closed, if closed */
+  closedAt?: number;
+  /** Close note */
+  closeNote?: string;
+}
+
+/**
+ * Work queue fold — the response from GET /api/company/queue.
+ * This is the fold over the event log: slots with their derived states,
+ * commitments, and counts. Per V8_SLICE2_DESIGN.md §8 build order step 5:
+ * "GET /api/company/queue returns the fold."
+ */
+export interface QueueFold {
+  /** All slots in slot order (active first, then done) */
+  slots: QueueSlot[];
+  /** Open commitments (sorted: overdue first, then by openedAt) */
+  commitments: QueueCommitment[];
+  /** Count of running slots (0 or 1 — one-lane queue) */
+  runningCount: number;
+  /** Count of slots whose result awaits its check (lane already free) */
+  reviewingCount: number;
+  /** Count of queued slots */
+  queuedCount: number;
+  /** Count of blocked slots */
+  blockedCount: number;
+  /** Count of held slots */
+  heldCount: number;
+  /** Count of done slots */
+  doneCount: number;
+  /** Count of open commitments */
+  openCommitments: number;
+  /** Count of overdue commitments */
+  overdueCommitments: number;
+  /** True if the lane is busy (a slot is running) */
+  laneBusy: boolean;
+  /** Name of the agent currently in the lane, if any */
+  laneOwner?: string;
+}
+
+/**
+ * Presence derivation response from GET /api/company/presence?now=.
+ * Per V8_SLICE2_DESIGN.md §8: "GET /api/company/presence?now= the derivation."
+ * Pure presenceAt(now) — owner-authored allowlist liveness, never self-reported.
+ */
+export interface QueuePresenceResponse {
+  /** Derived presence for all crew members */
+  presence: QueuePresence[];
+  /** The `now` timestamp the derivation was computed at (ms epoch) */
+  now: number;
+}
+
 // ---- Backup ----
 
 export interface BackupManifest {
