@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" width="880" height="430" role="img" aria-label="Animated terminal: creating a company, hiring Quill, reading the huddle">
+  <defs>
+    <linearGradient id="tbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#161b22"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Terminal chrome -->
+  <rect width="880" height="430" rx="14" fill="url(#tbg)" stroke="#2a3150" stroke-width="2"/>
+  <rect x="2" y="2" width="876" height="34" rx="12" fill="#1c2333"/>
+  <circle cx="24" cy="19" r="6" fill="#ff5f57"/>
+  <circle cx="44" cy="19" r="6" fill="#febc2e"/>
+  <circle cx="64" cy="19" r="6" fill="#28c840"/>
+  <text x="440" y="24" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="12" fill="#8b949e">the 90-second company</text>
+
+  <g font-family="ui-monospace,Menlo,monospace" font-size="14">
+    <!-- 1: create -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="0.5s" fill="freeze"/>
+      <text x="24" y="66" fill="#3ddc97">$</text>
+      <text x="40" y="66" fill="#e6edf3">titan company create --name "Moonlight Labs"</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="1.6s" fill="freeze"/>
+      <text x="40" y="92" fill="#9aa4c7">🏢 Moonlight Labs is open for business — 3 founding teammates:</text>
+      <text x="56" y="114" fill="#8b949e">· CEO (ceo)   · Scout (research)   · Builder (engineering)</text>
+    </g>
+
+    <!-- 2: hire -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="2.8s" fill="freeze"/>
+      <text x="24" y="148" fill="#3ddc97">$</text>
+      <text x="40" y="148" fill="#e6edf3">titan company hire --id quill --name Quill --role writing \</text>
+      <text x="72" y="170" fill="#e6edf3">--model claude-sonnet-5 --harness claude-agent-acp</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="4.0s" fill="freeze"/>
+      <text x="40" y="196" fill="#9aa4c7">🎉 Quill joined the company as writing.</text>
+    </g>
+
+    <!-- 3: status -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="5.0s" fill="freeze"/>
+      <text x="24" y="230" fill="#3ddc97">$</text>
+      <text x="40" y="230" fill="#e6edf3">titan company status</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="5.9s" fill="freeze"/>
+      <text x="40" y="256" fill="#e6edf3">Moonlight Labs <tspan fill="#8b949e">— Ship delightful things</tspan></text>
+      <text x="56" y="278" fill="#8b949e">· CEO · Scout · Builder</text>
+      <text x="56" y="300" fill="#ffb057">★ Quill (quill) — writing · claude-sonnet-5 · claude-agent-acp</text>
+    </g>
+
+    <!-- 4: huddle -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="7.0s" fill="freeze"/>
+      <text x="24" y="336" fill="#3ddc97">$</text>
+      <text x="40" y="336" fill="#e6edf3">titan company huddle</text>
+    </g>
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;1" dur="0.3s" begin="7.9s" fill="freeze"/>
+      <text x="40" y="362" fill="#4dabf7" font-weight="700">## Huddle</text>
+      <text x="40" y="384" fill="#9aa4c7">Scout — 1 accepted, 1 lesson    Quill — 2 open</text>
+      <text x="40" y="406" fill="#8b949e">Roster: + Quill (writing)</text>
+    </g>
+
+    <!-- blinking cursor -->
+    <rect x="40" y="416" width="9" height="3" fill="#3ddc97">
+      <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+</svg>

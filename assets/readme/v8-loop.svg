@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="The self-compiling loop: record, recognize, compile, shadow-gate, route">
+  <defs>
+    <linearGradient id="lbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#141a2c"/>
+    </linearGradient>
+    <filter id="lglow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="880" height="300" rx="16" fill="url(#lbg)" stroke="#2a3150" stroke-width="2"/>
+  <text x="440" y="42" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="19" font-weight="700" fill="#e6edf3">Your company learns while it works</text>
+  <text x="440" y="66" text-anchor="middle" font-family="-apple-system,'Segoe UI',sans-serif" font-size="13" fill="#8b949e">every repeated task becomes a verified recipe — replayed with zero frontier-model calls</text>
+
+  <!-- Pipeline stages -->
+  <g font-family="ui-monospace,Menlo,monospace" font-size="14" text-anchor="middle">
+    <!-- the wire -->
+    <path id="wire" d="M 90 160 H 790" stroke="#2a3150" stroke-width="3" fill="none"/>
+
+    <!-- traveling pulse -->
+    <circle r="6" fill="#3ddc97" filter="url(#lglow)">
+      <animateMotion dur="5s" repeatCount="indefinite" path="M 90 160 H 790"/>
+      <animate attributeName="fill" values="#7c5cff;#4dabf7;#ffb057;#ff6b9d;#3ddc97" dur="5s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- RECORD -->
+    <g>
+      <rect x="60" y="130" width="120" height="60" rx="10" fill="#161d31" stroke="#7c5cff" stroke-width="2">
+        <animate attributeName="stroke-opacity" values="1;0.35;1" dur="5s" begin="0s" repeatCount="indefinite"/>
+      </rect>
+      <text x="120" y="156" fill="#e6edf3" font-weight="700">RECORD</text>
+      <text x="120" y="176" fill="#8b949e" font-size="10.5">signed traces</text>
+    </g>
+    <!-- RECOGNIZE -->
+    <g>
+      <rect x="215" y="130" width="130" height="60" rx="10" fill="#161d31" stroke="#4dabf7" stroke-width="2">
+        <animate attributeName="stroke-opacity" values="0.35;1;0.35" dur="5s" begin="0.6s" repeatCount="indefinite"/>
+      </rect>
+      <text x="280" y="156" fill="#e6edf3" font-weight="700">RECOGNIZE</text>
+      <text x="280" y="176" fill="#8b949e" font-size="10.5">cluster patterns</text>
+    </g>
+    <!-- COMPILE -->
+    <g>
+      <rect x="380" y="130" width="120" height="60" rx="10" fill="#161d31" stroke="#ffb057" stroke-width="2">
+        <animate attributeName="stroke-opacity" values="0.35;1;0.35" dur="5s" begin="1.7s" repeatCount="indefinite"/>
+      </rect>
+      <text x="440" y="156" fill="#e6edf3" font-weight="700">COMPILE</text>
+      <text x="440" y="176" fill="#8b949e" font-size="10.5">trace → recipe</text>
+    </g>
+    <!-- SHADOW GATE -->
+    <g>
+      <rect x="535" y="130" width="140" height="60" rx="10" fill="#161d31" stroke="#ff6b9d" stroke-width="2">
+        <animate attributeName="stroke-opacity" values="0.35;1;0.35" dur="5s" begin="2.8s" repeatCount="indefinite"/>
+      </rect>
+      <text x="605" y="156" fill="#e6edf3" font-weight="700">SHADOW GATE</text>
+      <text x="605" y="176" fill="#8b949e" font-size="10.5">prove it, or it never ships</text>
+    </g>
+    <!-- ROUTE -->
+    <g>
+      <rect x="710" y="130" width="110" height="60" rx="10" fill="#161d31" stroke="#3ddc97" stroke-width="2">
+        <animate attributeName="stroke-opacity" values="0.35;1;0.35" dur="5s" begin="3.9s" repeatCount="indefinite"/>
+      </rect>
+      <text x="765" y="156" fill="#e6edf3" font-weight="700">ROUTE</text>
+      <text x="765" y="176" fill="#8b949e" font-size="10.5">instant replay</text>
+    </g>
+  </g>
+
+  <!-- Safety rails -->
+  <g font-family="-apple-system,'Segoe UI',sans-serif" font-size="12" fill="#6e7681" text-anchor="middle">
+    <text x="440" y="232">🔒 default-deny tools · confirm-required for anything risky · provenance-scoped (your agents never replay each other's credentials)</text>
+    <text x="440" y="258" fill="#3ddc97" opacity="0.9">
+      earned autonomy — nothing self-promotes without evidence
+      <animate attributeName="opacity" values="0.5;1;0.5" dur="4s" repeatCount="indefinite"/>
+    </text>
+  </g>
+</svg>
