@@ -12,8 +12,8 @@
  *   - 'chat' — normal state; send a friendly @mention check-in via
  *     postMessage().
  *
- * Cancelled missions: no-op. A cancelled room is terminated; nudging
- * makes no sense and must not call either API.
+ * Finished missions (done/failed): no-op. A finished room is terminal;
+ * nudging makes no sense and must not call either API.
  */
 import type { MissionMember, MissionRoom } from '@/api/missions';
 
@@ -31,10 +31,13 @@ export interface NudgeDeps {
 /**
  * Returns the nudge action for the given room + member state.
  * Blocked missions or agents get the recovery-nudge API path;
- * cancelled missions get no-op; everyone else gets a chat check-in.
+ * finished missions (done/failed) get no-op; everyone else gets a chat
+ * check-in. (v8.0.0 release: the old guard tested a non-existent
+ * 'cancelled' status — dead code that let nudges fire on finished
+ * missions. MissionStatus is forming|working|paused|blocked|done|failed.)
  */
 export function nudgeAction(room: MissionRoom, member: MissionMember): NudgeAction {
-  if (room.status === 'cancelled') return { kind: 'noop' };
+  if (room.status === 'done' || room.status === 'failed') return { kind: 'noop' };
   const needsRecovery = room.status === 'blocked' || member.state === 'blocked';
   if (needsRecovery) {
     return { kind: 'recovery' };
@@ -48,14 +51,14 @@ export function nudgeAction(room: MissionRoom, member: MissionMember): NudgeActi
 /**
  * Executes the nudge action by calling the injected API deps.
  * Returns true if the nudge succeeded (caller closes menu);
- * returns false for no-op (cancelled room);
+ * returns false for no-op (finished room);
  * throws on API failure (caller surfaces error, menu stays open).
  *
  * Guarantees:
  *   - Exactly one of nudgeMission/postMessage is called (never both, never neither, except noop).
  *   - nudgeMission receives room.id.
  *   - postMessage receives room.id and the chat message.
- *   - Cancelled room: neither is called.
+ *   - Finished room: neither is called.
  */
 export async function executeNudge(
   room: MissionRoom,
@@ -90,7 +93,7 @@ export interface NudgeCallbacks {
  * Guarantees:
  *   - Success: onClose called exactly once, onError not called.
  *   - Rejection: onClose not called, onError called with the error message.
- *   - No-op (cancelled): onClose not called, onError not called.
+ *   - No-op (finished room): onClose not called, onError not called.
  */
 export async function performNudge(
   room: MissionRoom,
@@ -116,6 +119,6 @@ export async function performNudge(
 export function nudgeHint(room: MissionRoom, member: MissionMember): string {
   const action = nudgeAction(room, member);
   if (action.kind === 'recovery') return 'Force a retry';
-  if (action.kind === 'noop') return 'Mission cancelled';
+  if (action.kind === 'noop') return 'Mission finished';
   return 'A friendly check-in';
 }

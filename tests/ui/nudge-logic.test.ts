@@ -116,14 +116,29 @@ describe('executeNudge — normal state (criterion 2)', () => {
     expect(deps.nudgeMission).not.toHaveBeenCalled();
   });
 
-  it('calls postMessage and not nudgeMission when done/done', async () => {
-    const room = makeRoom({ status: 'done' });
+  it('calls postMessage and not nudgeMission when working with a done member', async () => {
+    // v8.0.0 fix: a DONE room is now correctly a no-op (the old fixture
+    // encoded the bug of nudging finished missions). The chat path belongs
+    // to a live room whose member has simply finished their piece.
+    const room = makeRoom({ status: 'working' });
     const member = makeMember({ state: 'done' });
     const deps = makeDeps();
 
     await executeNudge(room, member, deps);
 
     expect(deps.postMessage).toHaveBeenCalledTimes(1);
+    expect(deps.nudgeMission).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for a done room even with a done member (finished missions are never nudged)', async () => {
+    const room = makeRoom({ status: 'done' });
+    const member = makeMember({ state: 'done' });
+    const deps = makeDeps();
+
+    const result = await executeNudge(room, member, deps);
+
+    expect(result).toBe(false);
+    expect(deps.postMessage).not.toHaveBeenCalled();
     expect(deps.nudgeMission).not.toHaveBeenCalled();
   });
 
@@ -172,9 +187,9 @@ describe('executeNudge — rejection (criterion 3)', () => {
 
 // ── Cancelled room boundary ───────────────────────────────────────
 
-describe('executeNudge — cancelled room (boundary)', () => {
-  it('calls neither API when mission is cancelled', async () => {
-    const room = makeRoom({ status: 'cancelled' });
+describe('executeNudge — finished room (boundary)', () => {
+  it('calls neither API when mission is done', async () => {
+    const room = makeRoom({ status: 'done' });
     const member = makeMember({ state: 'blocked' });
     const deps = makeDeps();
 
@@ -185,16 +200,16 @@ describe('executeNudge — cancelled room (boundary)', () => {
     expect(deps.postMessage).not.toHaveBeenCalled();
   });
 
-  it('nudgeAction returns noop for cancelled room even if agent is blocked', () => {
-    const room = makeRoom({ status: 'cancelled' });
+  it('nudgeAction returns noop for failed room even if agent is blocked', () => {
+    const room = makeRoom({ status: 'failed' });
     const member = makeMember({ state: 'blocked' });
     expect(nudgeAction(room, member).kind).toBe('noop');
   });
 
-  it('nudgeHint shows "Mission cancelled" for cancelled room', () => {
-    const room = makeRoom({ status: 'cancelled' });
+  it('nudgeHint shows "Mission finished" for done room', () => {
+    const room = makeRoom({ status: 'done' });
     const member = makeMember({ state: 'blocked' });
-    expect(nudgeHint(room, member)).toBe('Mission cancelled');
+    expect(nudgeHint(room, member)).toBe('Mission finished');
   });
 });
 
@@ -269,9 +284,9 @@ describe('performNudge — rejection (criterion 3: onClose zero, onError with me
   });
 });
 
-describe('performNudge — cancelled room (boundary: no callbacks fired)', () => {
-  it('cancelled: onClose zero, onError zero, neither API called', async () => {
-    const room = makeRoom({ status: 'cancelled' });
+describe('performNudge — finished room (boundary: no callbacks fired)', () => {
+  it('finished: onClose zero, onError zero, neither API called', async () => {
+    const room = makeRoom({ status: 'failed' });
     const member = makeMember({ state: 'blocked' });
     const deps = makeDeps();
     const cb = makeCallbacks();
