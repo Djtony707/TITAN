@@ -233,7 +233,7 @@ vi.mock("../src/providers/router.js", () => ({
 vi.mock("../src/utils/updater.js", () => ({
   getUpdateInfo: vi
     .fn()
-    .mockResolvedValue({ current: "7.2.2", latest: "7.2.2", upToDate: true }),
+    .mockResolvedValue({ current: "8.0.0", latest: "8.0.0", upToDate: true }),
 }));
 
 vi.mock("../src/skills/registry.js", () => ({
@@ -381,12 +381,12 @@ describe("Mission Control v2", () => {
   // ── Health & System ─────────────────────────────────────────────
 
   describe("Health & System", () => {
-    it('GET /api/health → { status: "ok", version: "2026.10.0" }', async () => {
+    it('GET /api/health → { status: "ok", version: "8.0.0" }', async () => {
       const res = await fetch(`${BASE}/api/health`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.status).toBe("ok");
-      expect(body.version).toBe(TITAN_VERSION);
+      expect(body.version).toBe("8.0.0");
       expect(typeof body.uptime).toBe("number");
     });
 
@@ -394,7 +394,7 @@ describe("Mission Control v2", () => {
       const res = await fetch(`${BASE}/api/stats`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.version).toBe(TITAN_VERSION);
+      expect(body.version).toBe("8.0.0");
       expect(typeof body.uptime).toBe("number");
     });
   });
@@ -419,7 +419,7 @@ describe("Mission Control v2", () => {
       const res = await fetch(`${BASE}/api/update`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
-      expect(body.current).toBe("7.2.2");
+      expect(body.current).toBe("8.0.0");
     });
   });
 
