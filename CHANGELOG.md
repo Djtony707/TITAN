@@ -1,5 +1,45 @@
 # Changelog
 
+## v8.0.0 — 2026-08-16 — The Company Release
+
+TITAN becomes a company: your crew of specialist agents gets shared memory,
+real hiring, earned autonomy, and a team space — while staying 100%
+backward-compatible. Every v8 surface is behind `company.*` / `selfCompiling.*`
+flags (default off): flag-off installs are byte-identical to v7.
+
+### The company layer (slices 1–6, hardened)
+- Signed, hash-chained company event log (ed25519 per-agent identities;
+  actor binding, authority tables, append-only, whole-chain verification)
+- Work queue with delegation, review verdicts, holds, blocks, commitments
+- The self-compiling loop — RECORD → RECOGNIZE → COMPILE → shadow GATE →
+  ROUTE — repaired end-to-end after an independent 22-defect audit: one
+  sha256 signature namespace (schema-versioned), typed slot-fill, atomic
+  shadow→active promotion, provenance-scoped replay (a recipe learned under
+  one principal never replays for another), path-traversal and trace-redaction
+  security fixes, and a production-path e2e suite that hand-sets nothing
+
+### The company brain (slice 7)
+- Pooled, attributed memory: signed brain entries (observation / decision /
+  lesson / commitment) with private/company scope, tombstone retraction, and
+  scope-enforced FTS5 retrieval — local, zero-config, rebuildable from the log
+- Hire/fire as first-class events: `hireAgent` mints a real identity with a
+  per-agent HARNESS and MODEL choice that flows into dispatch; retirement
+  revokes write access; founding principals are protected; a meta-agent (the
+  CEO principal) can run hiring for you
+- v7 history seeding: one command imports your receipts/traces as the
+  company's founding memories (idempotent)
+
+### The team feeling (slice 8)
+- Growth moments: hires, first accepted tasks, shared lessons, streaks,
+  farewells — a celebration feed derived from the signed log
+- The huddle: a standup-shaped daily digest per teammate
+- Team Pulse dashboard tab + `GET /api/company/growth` / `/huddle`
+
+### Quality
+- 8,694 tests passing (414 files), TypeScript clean
+- Design co-reviewed in-council with a GPT-5.6 agent; release-hygiene audit
+  passed (21 release-class files, zero private-data leaks)
+
 ## v7.2.2 — 2026-08-07 — Security patch
 
 Dependency security updates closing 32 Dependabot alerts (12 High severity).
