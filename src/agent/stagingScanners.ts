@@ -49,9 +49,22 @@ const SECRET_PATTERNS: SecretPattern[] = [
     { name: 'Hex_Secret_64', pattern: /[a-f0-9]{64}\b/i, severity: 'medium', falsePositivePatterns: [/sha256|hash|commit|checksum|digest/i] },
     // Passwords in code
     { name: 'Hardcoded_Password', pattern: /(password|passwd|pwd)\s*[:=]\s*["']([^"']{8,})["']/i, severity: 'high', falsePositivePatterns: [/password:\s*["']?\$\{|process\.env|example|placeholder|xxxxx|redacted/i] },
-    // TITAN-specific: don't leak the gateway password
-    { name: 'TITAN_Gateway_Password', pattern: /06052021Aell!/, severity: 'high' },
 ];
+
+// TITAN-specific: don't leak the DEPLOYMENT'S gateway password. The literal
+// must never live in this file (that would itself be the leak — found in the
+// v8.0.0 release sweep): the operator supplies it via env, and the scanner
+// adds the pattern only when configured.
+{
+    const deploymentPw = process.env.TITAN_GATEWAY_PASSWORD;
+    if (deploymentPw && deploymentPw.length >= 8) {
+        SECRET_PATTERNS.push({
+            name: 'TITAN_Gateway_Password',
+            pattern: new RegExp(deploymentPw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            severity: 'high',
+        });
+    }
+}
 
 // ── License patterns ─────────────────────────────────────────────
 

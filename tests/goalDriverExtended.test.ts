@@ -287,11 +287,20 @@ describe('stagingScanners', () => {
         expect(result.findings.filter(f => f.pattern === 'Hex_Secret_64')).toHaveLength(0);
     });
 
-    it('detects TITAN gateway password', async () => {
-        writeFileSync(join(scanDir, 'leaked.ts'), 'const pw = "06052021Aell!";\n');
-        const { scanBundle } = await import('../src/agent/stagingScanners.js');
-        const result = scanBundle(scanDir);
-        expect(result.findings.find(f => f.pattern === 'TITAN_Gateway_Password')).toBeDefined();
+    it('detects the operator-configured gateway password (env-supplied, never a literal)', async () => {
+        // The scanner adds this pattern from TITAN_GATEWAY_PASSWORD at import
+        // time — the real deployment password must never appear in the repo.
+        process.env.TITAN_GATEWAY_PASSWORD = 'fake-test-password-123!';
+        vi.resetModules();
+        try {
+            writeFileSync(join(scanDir, 'leaked.ts'), 'const pw = "fake-test-password-123!";\n');
+            const { scanBundle } = await import('../src/agent/stagingScanners.js');
+            const result = scanBundle(scanDir);
+            expect(result.findings.find(f => f.pattern === 'TITAN_Gateway_Password')).toBeDefined();
+        } finally {
+            delete process.env.TITAN_GATEWAY_PASSWORD;
+            vi.resetModules();
+        }
     });
 });
 

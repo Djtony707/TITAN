@@ -15,7 +15,8 @@ ssh "${TITAN_HOST}" "systemctl is-active titan.service"
 echo ""
 
 # Get session token
-PASSWORD='06052021Aell!'
+# Never hardcode the gateway password (v8.0.0 release sweep).
+PASSWORD="${TITAN_GATEWAY_PASSWORD:?set TITAN_GATEWAY_PASSWORD in your environment}"
 SESSION=$(ssh "${TITAN_HOST}" "curl -sk -X POST https://localhost:48420/api/login -H 'Content-Type: application/json' --data-raw '{\"password\":\"$PASSWORD\"}'" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
 
 # Health
