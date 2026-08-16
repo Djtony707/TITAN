@@ -77,7 +77,7 @@ export class RoomCursor<E extends RoomEventLike> {
     private async runCatchUp(): Promise<void> {
         let retries = 0;
         {
-            while (true) {
+            for (;;) {
                 let page: E[];
                 try {
                     page = await this.opts.fetchPage(this.cursor, this.opts.pageSize);

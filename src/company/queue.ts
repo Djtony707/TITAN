@@ -309,7 +309,7 @@ export function queueValidator(ctx: AppendContext): void {
                 }
                 return;
             }
-            reject('E_AUTHORITY', 'only the block setter or the user may clear a block');
+            return reject('E_AUTHORITY', 'only the block setter or the user may clear a block');
         }
         case 'hold.set': {
             if (!(actor === 'watchman' || actor === 'user')) reject('E_AUTHORITY', 'holds are watchman/user instruments');
