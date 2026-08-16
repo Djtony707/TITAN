@@ -140,3 +140,26 @@ describe('v8 signature — production-path end-to-end', () => {
         expect(decision.kind).toBe('miss');
     });
 });
+
+describe('provenance scope (council N3)', () => {
+    it('a recipe compiled under one principal never replays for another', () => {
+        const c = cfg();
+        const message = 'summarize /home/tony/notes.txt';
+        const recipe = compileRecipe(toPersistedTrace(trace(message)), { principal: 'scout' });
+        registerRecipe(recipe, c);
+        promoteToShadow(recipe.id, 'test', c);
+        for (let i = 0; i < SHADOW_MIN_COMPARISONS; i++) {
+            recordShadowComparison(recipe.id, {
+                epoch: getEntry(recipe.id)!.recipe.stats.shadowEpoch,
+                comparisonId: `cmp-prov-${i}`,
+                recipe: [{ name: 'read_file', content: 'X' }],
+                frontier: [{ name: 'read_file', content: 'X' }],
+            }, { configOverride: c });
+        }
+        // scout's own request replays; the user's identical request MISSES.
+        const asScout = routeCompiled({ message, activeRecipes: getActiveRecipes(), principal: 'scout' });
+        expect(asScout.kind).toBe('replay');
+        const asUser = routeCompiled({ message, activeRecipes: getActiveRecipes() });
+        expect(asUser.kind).toBe('miss');
+    });
+});

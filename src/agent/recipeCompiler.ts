@@ -47,6 +47,14 @@ export interface CompiledRecipe extends Omit<Recipe, 'steps'> {
      * check lets a colliding request pour a {num} into a {path} slot.
      */
     slotTypes?: SlotType[];
+    /**
+     * Provenance scope (council N3): the principal whose traces compiled
+     * this recipe. The router refuses cross-principal replay — a recipe
+     * learned under agent A's tools/credentials/policy must not replay for
+     * agent B. Today's single-loop path compiles as 'user'; the company
+     * dispatch passes its agentId when it adopts routing.
+     */
+    provenance?: { principal: string };
     sourceTraceIds: string[];
     tier: 1 | 2;
     /** Promotion state machine: candidate → shadow → active → (demoted|retired) */
@@ -128,7 +136,7 @@ function classifyArg(
  */
 export function compileRecipe(
     trace: PersistedTrace,
-    options?: { id?: string; name?: string },
+    options?: { id?: string; name?: string; principal?: string },
 ): CompiledRecipe {
     if (!trace.signature) {
         throw new Error(`compileRecipe: trace ${trace.traceId} has no signature — persist via traceStore first`);
@@ -181,6 +189,7 @@ export function compileRecipe(
         signature: sig,
         signaturePreview: preview,
         slotTypes: slots.map(s => s.type),
+        provenance: { principal: options?.principal ?? 'user' },
         sourceTraceIds: [trace.traceId],
         tier: 2,
         state: 'candidate',

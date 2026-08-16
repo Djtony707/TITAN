@@ -48,6 +48,13 @@ export interface RouterInput {
      * the router escalates even on an exact low-stakes match.
      */
     stakesOverride?: StakesLevel;
+    /**
+     * The requesting principal (council N3 provenance scope). Default
+     * 'user' — today's single-loop path. A recipe carrying provenance for
+     * a DIFFERENT principal is invisible to this request: no cross-principal
+     * replay of another agent's learned tool behavior.
+     */
+    principal?: string;
 }
 
 export interface ResolvedStep {
@@ -178,9 +185,15 @@ export function isReplaySafeStep(tool: string, args: Record<string, unknown>): b
 
 export function routeCompiled(input: RouterInput): RouterDecision {
     const { sig, slots } = computeAbstractSignature(input.message);
+    const principal = input.principal ?? 'user';
 
-    // 1. Exact abstract-signature match against active recipes.
-    const matches = input.activeRecipes.filter(r => r.state === 'active' && r.signature === sig);
+    // 1. Exact abstract-signature match against active recipes, scoped to
+    //    the requesting principal (council N3): recipes without provenance
+    //    predate the scope field and stay user-owned by definition.
+    const matches = input.activeRecipes.filter(r =>
+        r.state === 'active'
+        && r.signature === sig
+        && (r.provenance?.principal ?? 'user') === principal);
 
     // Ambiguity rejection: two candidate matches = miss (hard gate 4).
     if (matches.length > 1) {
