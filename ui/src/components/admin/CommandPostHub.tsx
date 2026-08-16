@@ -5,6 +5,7 @@ import {
   MessageSquare, Send, StopCircle, Plus, Shield, Eye,
   BarChart3, Briefcase, Play, Pause, Search, Trash2, Scale,
   Mail, Target, FileText, Terminal, RefreshCw, ListOrdered,
+  PartyPopper,
 } from 'lucide-react';
 import {
   getCommandPostDashboard, streamMessage, getCPOrg, getCPIssues, createCPIssue,
@@ -1483,7 +1484,7 @@ function DebatesTab() {
 // MAIN: TABBED HUB
 // ═══════════════════════════════════════════════════════════════
 
-type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals' | 'Company' | 'Queue';
+type Tab = 'Dashboard' | 'Social' | 'Inbox' | 'Goals' | 'Work' | 'Sessions' | 'Org Chart' | 'Agents' | 'Files' | 'Debates' | 'Costs' | 'Traces' | 'Console' | 'Issues' | 'Approvals' | 'Company' | 'Queue' | 'Pulse';
 
 const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof Shield }[] }[] = [
   {
@@ -1510,6 +1511,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string; icon: typeof 
       { id: 'Org Chart', label: 'Org Chart', icon: GitBranch },
       { id: 'Company', label: 'Company', icon: Building2 },
       { id: 'Queue', label: 'Queue', icon: ListOrdered },
+      { id: 'Pulse', label: 'Pulse', icon: PartyPopper },
       { id: 'Agents', label: 'Agents', icon: Users },
       { id: 'Files', label: 'Files', icon: FileText },
       { id: 'Debates', label: 'Debates', icon: Scale },
@@ -1538,6 +1540,7 @@ const CPGoalsLazy = lazy(() => import('@/components/command-post/CPGoals'));
 const CPAgentsLazy = lazy(() => import('@/components/command-post/CPAgents'));
 const CompanyRoomLazy = lazy(() => import('@/components/command-post/CompanyRoom'));
 const CompanyQueueLazy = lazy(() => import('@/components/command-post/CompanyQueue'));
+const CompanyPulseLazy = lazy(() => import('@/components/command-post/CompanyPulse'));
 
 export default function CommandPostHub() {
   // v4.5.2: Watch is the first tab — it's the glanceable "living" view
@@ -1612,7 +1615,8 @@ export default function CommandPostHub() {
   const flatTabs = TAB_GROUPS
     .flatMap(group => group.tabs.map(t => ({ ...t, group: group.label })))
     .filter(t => t.id !== 'Company' || companyEnabled)
-    .filter(t => t.id !== 'Queue' || (companyEnabled && queueEnabled));
+    .filter(t => t.id !== 'Queue' || (companyEnabled && queueEnabled))
+    .filter(t => t.id !== 'Pulse' || companyEnabled);
 
   const TabContent = () => {
     switch (tab) {
@@ -1627,6 +1631,7 @@ export default function CommandPostHub() {
       case 'Org Chart': return <OrgChartTab agents={d.agents} />;
       case 'Company': return <Suspense fallback={<TabFallback label="company room" />}><CompanyRoomLazy /></Suspense>;
       case 'Queue': return <Suspense fallback={<TabFallback label="work queue" />}><CompanyQueueLazy /></Suspense>;
+      case 'Pulse': return <Suspense fallback={<TabFallback label="team pulse" />}><CompanyPulseLazy /></Suspense>;
       case 'Agents': return <Suspense fallback={<TabFallback label="agents" />}><CPAgentsLazy /></Suspense>;
       case 'Files': return <Suspense fallback={<TabFallback label="files" />}><CPFilesLazy /></Suspense>;
       case 'Debates': return <DebatesTab />;

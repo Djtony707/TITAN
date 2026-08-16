@@ -1458,3 +1458,29 @@ export async function runTests(scope?: string): Promise<{ runId: string; started
     body: JSON.stringify(scope ? { scope } : {}),
   });
 }
+
+/** Slice 8: the celebration feed. (GET /api/company/growth?limit=) */
+export async function getGrowthMoments(limit = 20): Promise<{ moments: GrowthMoment[] }> {
+  return request(`/api/company/growth?limit=${limit}`);
+}
+
+/** Slice 8: the standup-shaped digest. (GET /api/company/huddle?hours=) */
+export async function getHuddle(hours = 24): Promise<HuddleDigest> {
+  return request(`/api/company/huddle?hours=${hours}`);
+}
+
+export interface GrowthMoment {
+  ts: number;
+  kind: 'hired' | 'first-accept' | 'lesson' | 'streak' | 'retired';
+  agentId: string;
+  text: string;
+}
+
+export interface HuddleDigest {
+  generatedAt: number;
+  windowStartTs: number;
+  agents: Array<{ agentId: string; displayName: string; accepted: number; open: number; lessons: number }>;
+  freshLessons: Array<{ agentId: string; text: string }>;
+  rosterChanges: string[];
+  rendered: string;
+}
