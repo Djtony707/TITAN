@@ -293,6 +293,20 @@ export async function getRoomEvents(opts: { after?: number; limit?: number }): P
     return log.read({ afterSeq: opts.after && opts.after > 0 ? opts.after : undefined, limit: opts.limit });
 }
 
+/** GET /api/company/growth — the celebration feed (slice 8). */
+export async function getGrowthMoments(limit?: number): Promise<import('./growth.js').GrowthMoment[]> {
+    const { log } = await ensure();
+    const { growthMoments } = await import('./growth.js');
+    return growthMoments(log, limit);
+}
+
+/** GET /api/company/huddle — the standup-shaped digest (slice 8). */
+export async function getHuddle(windowMs?: number): Promise<import('./growth.js').HuddleDigest> {
+    const { log } = await ensure();
+    const { huddleDigest } = await import('./growth.js');
+    return huddleDigest(log, windowMs ? { windowMs } : {});
+}
+
 /** POST /api/company/room — the human speaks in the room, as themselves. */
 export async function postUserMessage(text: string, replyTo?: string): Promise<CompanyEvent> {
     const { log, keysDir } = await ensure();

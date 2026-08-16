@@ -73,6 +73,8 @@ export function createCompanyRouter(): Router {
     router.post('/queue/lift-hold', companyDisabled);
     router.post('/queue/clear-block', companyDisabled);
     router.post('/queue/commitment/close', companyDisabled);
+    router.get('/growth', companyDisabled);
+    router.get('/huddle', companyDisabled);
     return router;
   }
 
@@ -102,6 +104,32 @@ export function createCompanyRouter(): Router {
       res.json(status);
     } catch (e) {
       logger.error(COMPONENT, `Status error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // ── GET /growth — celebration feed (slice 8) ─────────────────────
+  router.get('/growth', async (req, res) => {
+    try {
+      const parsed = parseSafeInt(req.query.limit, 20);
+      const limit = Math.min(Math.max(parsed ?? 20, MIN_LIMIT), 100);
+      const { getGrowthMoments } = await import('../../company/service.js');
+      res.json({ moments: await getGrowthMoments(limit) });
+    } catch (e) {
+      logger.error(COMPONENT, `Growth error: ${(e as Error).message}`);
+      res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
+    }
+  });
+
+  // ── GET /huddle — standup digest (slice 8) ───────────────────────
+  router.get('/huddle', async (req, res) => {
+    try {
+      const parsed = parseSafeInt(req.query.hours, 24);
+      const hours = Math.min(Math.max(parsed ?? 24, 1), 24 * 14);
+      const { getHuddle } = await import('../../company/service.js');
+      res.json(await getHuddle(hours * 60 * 60 * 1000));
+    } catch (e) {
+      logger.error(COMPONENT, `Huddle error: ${(e as Error).message}`);
       res.status(500).json({ error: 'Something went wrong on our end. Please try again in a moment.' });
     }
   });
