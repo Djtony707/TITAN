@@ -301,6 +301,29 @@ function rowToEvent(r: Row): SystemEvent {
     };
 }
 
+// ── SQLite connections ──────────────────────────────────────────────
+
+/**
+ * How long a connection waits on another process's lock before SQLite
+ * gives up with "database is locked" (SQLITE_BUSY).
+ */
+const BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * Open a connection with a busy handler. Several processes (gateway,
+ * CLI, workers) share one system.db; without a busy timeout SQLite fails
+ * the instant another process holds the write lock — even the schema
+ * read in `ensureOpen` — instead of waiting for it. Appends still
+ * serialize through BEGIN IMMEDIATE, so a waiting writer re-validates
+ * against the committed log once it gets the lock. Set via PRAGMA rather
+ * than the constructor's `timeout` option, which needs Node >= 22.16.
+ */
+function openDb(path: string): DatabaseSync {
+    const db = new DatabaseSync(path);
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    return db;
+}
+
 // ── Registration token (C5: module-private, not exported) ───────────
 
 /**
@@ -574,7 +597,7 @@ class SystemStore {
         try {
             this.acquireLock();
             this.migrateLegacyIfNeeded();
-            this.db = new DatabaseSync(this.dbPath);
+            this.db = openDb(this.dbPath);
             this.applySchema(this.db);
             // Apply all registered features' extra DDL (idempotent).
             for (const reg of this.features.values()) {
@@ -713,7 +736,7 @@ class SystemStore {
         // If system.db already exists, check the durable migration_meta
         // marker for idempotency + retirement status (C3).
         if (existsSync(this.dbPath)) {
-            const check = new DatabaseSync(this.dbPath);
+            const check = openDb(this.dbPath);
             try {
                 this.applySchema(check);
                 const meta = check.prepare(
@@ -772,7 +795,7 @@ class SystemStore {
         const legacyKeysDir = this.legacyKeysDir;
 
         // Open the legacy DB and read its rows.
-        const legacy = new DatabaseSync(this.legacyDbPath);
+        const legacy = openDb(this.legacyDbPath);
         const rows = legacy.prepare('SELECT * FROM events ORDER BY seq ASC').all() as unknown as Row[];
 
         // Verify legacy chain integrity: prev_hash links AND cryptographic
@@ -808,7 +831,7 @@ class SystemStore {
 
         // Create system.db and copy rows + migration_meta transactionally.
         mkdirSync(dirname(this.dbPath), { recursive: true });
-        const target = new DatabaseSync(this.dbPath);
+        const target = openDb(this.dbPath);
         this.applySchema(target);
 
         target.exec('BEGIN IMMEDIATE');
@@ -876,7 +899,7 @@ class SystemStore {
             );
         }
         // Record retirement success.
-        const mark = new DatabaseSync(this.dbPath);
+        const mark = openDb(this.dbPath);
         try {
             mark.prepare('UPDATE migration_meta SET retired = 1 WHERE id = 1').run();
         } finally {
