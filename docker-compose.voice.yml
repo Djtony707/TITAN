@@ -64,7 +64,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # titan-voice-ui removed — voice UI is now part of the React SPA served by TITAN gateway
+  # No voice UI container — the voice UI is part of the React SPA (ui/) served by the TITAN gateway
 
   titan-voice-agent:
     build: ./titan-voice-agent

@@ -1089,23 +1089,18 @@ ${v8Enabled ? `
 
         <div style="text-align:center;padding:40px 20px">
           <p style="color:var(--text-dim);margin-bottom:24px;font-size:14px;line-height:1.6">
-            Voice chat uses LiveKit with a dedicated React UI featuring audio visualizers,<br>
-            transcripts, interruption handling, and WebRTC-powered audio.
+            Voice chat is part of Mission Control, the React UI this gateway serves &mdash;<br>
+            there is no separate voice app to run.
           </p>
           <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap">
-            <input id="voice-ui-url" type="text" value="http://localhost:3000" style="width:280px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;font-family:monospace"/>
             <button class="btn" data-action="voice-open" style="font-size:14px;padding:10px 24px">Open Voice Chat</button>
           </div>
-          <p style="color:var(--text-dim);margin-top:20px;font-size:12px">
-            Powered by <a href="https://github.com/livekit/agent-starter-react" target="_blank" style="color:var(--accent)">LiveKit agent-starter-react</a>
-            &mdash; runs locally on Titan PC
-          </p>
         </div>
       </div>
 
       <div class="card" style="margin-top:16px">
         <h3 style="margin:0 0 12px 0">Architecture</h3>
-        <pre style="font-size:11px;color:var(--text-dim);line-height:1.5;margin:0;overflow-x:auto">Browser (agent-starter-react, port 3000)
+        <pre style="font-size:11px;color:var(--text-dim);line-height:1.5;margin:0;overflow-x:auto">Browser (Mission Control, served by the gateway)
   |  WebRTC
 LiveKit Server (Docker, port 7880)
   |  LiveKit Agents SDK
@@ -1262,7 +1257,7 @@ document.addEventListener('click', (e) => {
     if (a === 'refresh-ollama') refreshOllamaModels();
     if (a === 'test-ollama') testOllamaConnection();
     if (a === 'refresh-mesh') loadMeshPanel();
-    if (a === 'voice-open') { const url = document.getElementById('voice-ui-url').value.trim(); if (url) window.open(url, '_blank'); }
+    if (a === 'voice-open') window.open('/tools/voice', '_blank');
     if (a === 'refresh-plugins') loadPluginsPanel();
     if (a === 'refresh-logs') loadLogs();
     if (a === 'refresh-telemetry') loadTelemetry();
