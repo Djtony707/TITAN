@@ -2,6 +2,10 @@
 
 Something new is on the horizon. Odyssey is coming soon, with a fresh vision for your AI workspace. Stay tuned for the reveal.
 
+Follow Odyssey at [lakelogicai.net](https://lakelogicai.net).
+
+Interested in beta testing Odyssey? [Beta testing details](https://lakelogicai.net/#beta).
+
 **TITAN will be discontinued when Odyssey launches.**
 
 ---
