@@ -1,3 +1,11 @@
+## Odyssey is coming soon
+
+Something new is on the horizon. Odyssey is coming soon, with a fresh vision for your AI workspace. Stay tuned for the reveal.
+
+**TITAN will be discontinued when Odyssey launches.**
+
+---
+
 [//]: # "npm-text-start"
 
 > **TITAN** — A local-first AI agent framework that runs on your hardware, with your models, under your control. v8 makes it a **company**: hire specialists (each with its own model and harness), give them a shared brain, watch them earn autonomy — and stay in the loop without giving up control. `npm i -g titan-agent`
