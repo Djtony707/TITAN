@@ -94,6 +94,7 @@ vi.mock("../src/config/config.js", () => ({
   loadConfig: vi.fn().mockImplementation(() => makeMockConfig()),
   getDefaultConfig: vi.fn().mockReturnValue({}),
   resetConfigCache: vi.fn(),
+  saveConfig: vi.fn(),
   updateConfig: vi.fn(),
   hasUsableProvider: vi.fn().mockReturnValue({ usable: true, details: "mock" }),
 }));
@@ -277,6 +278,7 @@ import { startGateway, stopGateway } from "../src/gateway/server.js";
 import { handleSlashCommand } from "../src/gateway/slashCommands.js";
 import { routeMessage } from "../src/agent/multiAgent.js";
 import { runAutopilotNow, setAutopilotDryRun } from "../src/agent/autopilot.js";
+import { saveConfig } from "../src/config/config.js";
 
 // Auth header for routes that require it
 const authHeaders = { Authorization: "Bearer noauth" };
@@ -688,6 +690,10 @@ describe("Gateway Extended", () => {
       });
 
       expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ enabled: true, persisted: true });
+      expect(vi.mocked(saveConfig)).toHaveBeenCalledWith(expect.objectContaining({
+        autopilot: expect.objectContaining({ enabled: true, dryRun: true }),
+      }));
       expect(vi.mocked(setAutopilotDryRun)).toHaveBeenCalledWith(true);
     });
 
