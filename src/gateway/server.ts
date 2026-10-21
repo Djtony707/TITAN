@@ -14,6 +14,7 @@ import { statfs } from 'fs/promises';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
+import { assertSecureNodeRuntime } from '../utils/nodeRuntime.js';
 import type { ProviderConfig } from '../config/schema.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
 import { processMessage } from '../agent/agent.js';
@@ -811,6 +812,7 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 
 /** Start the Gateway server */
 export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean; rateLimitMax?: number; rateLimitWindowMs?: number; skipUsableCheck?: boolean }): Promise<void> {
+  assertSecureNodeRuntime();
   const config = loadConfig();
   initFileLogger(TITAN_LOGS_DIR);
   const port = options?.port || config.gateway.port;

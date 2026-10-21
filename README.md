@@ -315,7 +315,7 @@ docker run -d -p 48420:48420 --name titan \
   ghcr.io/djtony707/titan:latest
 ```
 
-**Requirements:** Node ≥ 22 (pure ESM). NVIDIA GPU + CUDA optional for LoRA fine-tuning and F5-TTS voice cloning. Apple Silicon Metal supported.
+**Requirements:** patched stable Node 22.23.4+, 24.22.1+, or 26.12.1+ (pure ESM; only these release lines are supported). NVIDIA GPU + CUDA optional for LoRA fine-tuning and F5-TTS voice cloning. Apple Silicon Metal supported.
 
 **Upgrading from v5.x or v6.x:** just re-install. The migration runner takes an automatic backup to `~/.titan/backups/` and rolls forward. `titan backup restore <id>` puts you back if anything breaks.
 
@@ -381,7 +381,7 @@ The LLM picks which specialists to spawn based on the goal. You can also call th
 | **Mission Control admin panels** | 51 | `ui/src/components/admin/` |
 | **Soma drives** | 5 (purpose, curiosity, hunger, safety, social) | `src/organism/` |
 | **Gateway port (default)** | 48420 | `src/utils/constants.ts` |
-| **Node** | ≥ 22, pure ESM | `package.json` |
+| **Node** | 22.23.4+ / 24.22.1+ / 26.12.1+ stable lines, pure ESM | `package.json` |
 | **License** | MIT | `LICENSE` |
 
 Every row above traces to code. The repo has a self-check at `tests/unit/readme-claims.test.ts` that fails CI if the verified counts drift beyond tolerance.

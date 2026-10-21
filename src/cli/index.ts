@@ -3,6 +3,7 @@
  * Command-line interface for TITAN: onboard, gateway, agent, send, doctor, skills, config,
  * pairing, agents. Mirrors OpenClaw's CLI surface.
  */
+import './runtimePreflight.js';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { TITAN_VERSION, TITAN_ASCII_LOGO, TITAN_FULL_NAME, TITAN_CONFIG_PATH, TITAN_LOGS_DIR } from '../utils/constants.js';

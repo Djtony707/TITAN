@@ -12,11 +12,9 @@ export function useExternalCliFixture() {
     beforeEach(() => {
         directory = mkdtempSync(join(tmpdir(), 'titan-cli-fixture-'));
         record = join(directory, 'invocations.jsonl');
-        const source = `#!${process.execPath}
-import { appendFileSync } from 'node:fs';
-import { basename } from 'node:path';
-const cli = basename(process.argv[1]);
-const args = process.argv.slice(2);
+        const source = `import { appendFileSync } from 'node:fs';
+const cli = process.argv[2];
+const args = process.argv.slice(3);
 let input = '';
 if (cli === 'codex') for await (const chunk of process.stdin) input += chunk;
 appendFileSync(process.env.TITAN_CLI_FIXTURE_RECORD, JSON.stringify({ cli, args, input, apiUrl: process.env.TITAN_API_URL, runId: process.env.TITAN_RUN_ID, issueId: process.env.TITAN_ISSUE_ID }) + '\\n');
@@ -25,7 +23,14 @@ else if (process.env.TITAN_CLI_FIXTURE_MODE === 'error') { console.error('synthe
 else if (cli === 'codex') console.log(JSON.stringify({ result: 'synthetic-codex-result' }));
 else console.log('synthetic-claude-result');
 `;
-        for (const cli of ['claude', 'codex']) writeFileSync(join(directory, cli), source, { mode: 0o755 });
+        const payload = join(directory, 'cli-fixture.mjs');
+        writeFileSync(payload, source);
+        const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        for (const cli of ['claude', 'codex']) {
+            // A shebang cannot quote a Node executable path containing spaces.
+            const launcher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(payload)} ${shellQuote(cli)} "$@"\n`;
+            writeFileSync(join(directory, cli), launcher, { mode: 0o755 });
+        }
         // PATH retains system utilities needed by bash tests; both agent names resolve to fixtures first.
         vi.stubEnv('PATH', `${directory}${delimiter}${process.env.PATH ?? ''}`);
         vi.stubEnv('TITAN_CLI_FIXTURE_RECORD', record);

@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- **Node.js 22+** installed (check with `node --version`)
+- **Node.js 22.23.4+, 24.22.1+, or 26.12.1+** (supported stable release lines only) installed (check with `node --version`)
 - **API key** for at least one LLM provider (OpenAI, Anthropic, etc.) or [Ollama](https://ollama.ai) for local models
 - Basic familiarity with TypeScript/JavaScript
 

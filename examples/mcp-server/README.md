@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server that exposes TITAN's tools to Claude Deskt
 
 ## Prerequisites
 
-- Node.js >= 20
+- Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (supported stable release lines)
 - Claude Desktop, Cursor, or another MCP client
 - A running TITAN gateway (`titan gateway`)
 

@@ -20,7 +20,9 @@
       "status": "missing_coverage",
       "apiStatus": 404,
       "defaultSetup": "not-configured",
-      "workflowPresent": false
+      "workflowPresent": false,
+      "workflowPresentAtSnapshot": false,
+      "candidateWorkflowPrepared": true
     },
     "alertsSuppressed": 0,
     "remoteChanges": false,
@@ -131,6 +133,55 @@
       "explicitChatOptInPreserved": true,
       "realCliUnitTestsReplaced": true,
       "manualIntegrationGate": "Codex only; environment authorization and explicit CLI flag plus provider=codex required; Claude rejected"
+    },
+    "runtimePolicy": {
+      "nodeRange": "^22.23.4 || ^24.22.1 || ^26.12.1",
+      "manifestCount": 4,
+      "preflightBoundaries": [
+        "CLI first import",
+        "Doctor entry",
+        "direct gateway startup"
+      ],
+      "rejects": [
+        "affected older releases",
+        "EOL lines",
+        "prereleases",
+        "unreviewed majors"
+      ],
+      "dockerVersionTag": "22.23.4",
+      "ciSelectorsPinned": 5,
+      "nodeSourcePackage": "22.23.4-1nodesource1",
+      "officialInputsVerified": true,
+      "dockerImagesBuilt": false,
+      "nativeGpuExecution": false,
+      "installedRuntimeChanged": false,
+      "productionRuntimeVerified": false,
+      "assessment": "docs/runtime-security-addendum-2026-10-21.md"
+    },
+    "codeQL": {
+      "workflow": ".github/workflows/codeql.yml",
+      "localConfiguration": "prepared and independently reviewed",
+      "eligiblePublicRepository": true,
+      "language": "javascript-typescript",
+      "buildMode": "none",
+      "querySuite": "security-extended",
+      "events": [
+        "push main",
+        "pull_request targeting main",
+        "workflow_dispatch"
+      ],
+      "schedule": false,
+      "installsOrApplicationBuilds": false,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "security-events": "write"
+      },
+      "actionRelease": "v4.39.1",
+      "actionCommit": "9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
+      "checkoutCommit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "yamlValidation": "passed",
+      "hostedAnalysisRun": false
     }
   },
   "secrets": {
@@ -145,10 +196,17 @@
       "file": "docs/HANDOFF-2026-05-03.md",
       "line": 97,
       "commit": "13791ec0fe41",
-      "activeStatus": "not tested"
+      "activeStatus": "not tested",
+      "service": "TITAN gateway on Titan PC, loopback port 48420, deployed under /opt/TITAN",
+      "field": "Authorization: Bearer",
+      "documentedEndpoints": [
+        "/api/health",
+        "/api/social/state"
+      ],
+      "rotationCompleted": false
     },
-    "requiredFollowup": "Rotate previously embedded integration credentials if used; owner must validate and rotate historical opaque tokens if active.",
-    "currentTrackedFiles": 1848
+    "requiredFollowup": "Rotate previously embedded Sonarr, Radarr and TMDB integration credentials if used; rotate the historical Titan PC gateway bearer token if still used. No credential validity was tested.",
+    "currentTrackedFiles": 1853
   },
   "verification": {
     "backendBuild": "passed",
@@ -180,13 +238,14 @@
     "fullSuite": {
       "status": "passed",
       "exitCode": 0,
-      "filesPassed": 415,
-      "filesTotal": 415,
-      "casesPassed": 8701,
+      "filesPassed": 416,
+      "filesTotal": 416,
+      "casesPassed": 8741,
       "casesSkipped": 9,
-      "casesTotal": 8710,
-      "durationSeconds": 101.45,
-      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-presence-final.log"
+      "casesTotal": 8750,
+      "unhandledErrors": 0,
+      "durationSeconds": 81.79,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-loopback-final.log"
     },
     "baselineComparison": {
       "configFailureReproducedOnOriginalMainLock": true,
@@ -213,12 +272,58 @@
       "executableSymlink": true,
       "brokenSymlinkRejected": true,
       "autonomousChatDeniedWithoutExecution": true
-    }
+    },
+    "validatedNodeVersion": "24.22.1",
+    "targetedRuntimeAndFixtureTests": {
+      "filesPassed": 11,
+      "casesPassed": 326
+    },
+    "earlierPatchedNodeSuite": {
+      "filesPassed": 416,
+      "casesPassed": 8741,
+      "casesSkipped": 9,
+      "exitCode": 1,
+      "unhandledErrors": 5,
+      "reason": "Pending detached scopedPause imports from unchanged threshold tests during teardown",
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-final.log"
+    },
+    "matrixUnitNetworkAttempt": {
+      "earlierAttempt": "matrix.org SDK requests with a synthetic token",
+      "realCredentialUsed": false,
+      "fixtureNowControlled": true,
+      "productionChannelCodeChanged": false
+    },
+    "networkGuard": {
+      "scope": "Node TCP/TLS/DNS/UDP/fetch in this test process and descendant Node processes",
+      "allowed": "loopback and local IPC only",
+      "selfTest": "external operations blocked before dispatch; real loopback HTTP passed",
+      "hostFirewallChanged": false,
+      "osSandboxForArbitraryNativeChildren": false,
+      "dependencyAdded": false,
+      "file": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/loopback-network-guard.mjs",
+      "remainingSdkAttempt": "Existing WhatsApp/Baileys test websocket attempt was blocked before dispatch and handled the refusal",
+      "defaultSuiteFullyNetworkIsolated": false,
+      "runnerErrorsIgnored": false
+    },
+    "firstPatchedNodeSuite": {
+      "filesPassed": 413,
+      "filesFailed": 3,
+      "casesPassed": 8735,
+      "casesFailed": 6,
+      "casesSkipped": 9,
+      "exitCode": 1,
+      "reason": "Synthetic CLI shebang failed for a Node executable path containing spaces; one stale floating Docker-tag expectation",
+      "productDefaultsChanged": false,
+      "assertionsLoosened": false,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-patched-node-final.log"
+    },
+    "remainingOwnedFixtureOrMcpProcesses": 0
   },
   "releaseBlockers": [
     "Unpatched high advisory in active voice development lint tooling",
     "Historical credential exposure needs owner rotation/validation",
-    "CodeQL/code-scanning coverage is not configured",
+    "First hosted CodeQL analysis is pending authorized publication",
+    "Production patched-runtime verification and rollout have not been performed",
     "Explicit GitHub GO required before push"
   ],
   "publicationRule": {
@@ -230,6 +335,8 @@
     "9112954c",
     "1f3edbab",
     "d01a60cd",
-    "8738318f"
+    "8738318f",
+    "542876bd",
+    "f6774f6d"
   ]
 }

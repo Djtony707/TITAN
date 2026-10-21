@@ -28,7 +28,7 @@ Key features:
 
 ### System Requirements
 
-- **Node.js**: 20+
+- **Node.js**: patched stable 22.23.4+, 24.22.1+, or 26.12.1+
 - **OS**: macOS, Linux, Windows (WSL recommended)
 - **RAM**: 8GB minimum, 16GB+ recommended
 - **GPU** (optional): NVIDIA CUDA for VRAM management, Apple Silicon for Metal

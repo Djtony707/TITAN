@@ -5,6 +5,17 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const matrixSdk = vi.hoisted(() => {
+    const client = {
+        on: vi.fn(),
+        startClient: vi.fn().mockResolvedValue(undefined),
+        stopClient: vi.fn(),
+        getUserId: vi.fn(() => '@fixture:example.invalid'),
+    };
+    return { client, createClient: vi.fn(() => client) };
+});
+vi.mock('matrix-js-sdk', () => ({ createClient: matrixSdk.createClient }));
+
 // ── Common mocks ──────────────────────────────────────────────────────────
 
 vi.mock('../src/utils/logger.js', () => ({
@@ -441,10 +452,15 @@ describe('MatrixChannel', () => {
 
     beforeEach(async () => {
         vi.resetModules();
+        vi.clearAllMocks();
+        vi.stubEnv('MATRIX_HOMESERVER', 'https://matrix.example.invalid');
+        vi.stubEnv('MATRIX_USER_ID', '@fixture:example.invalid');
         currentConfig = makeConfig();
         const mod = await import('../src/channels/matrix.js');
         MatrixChannelClass = mod.MatrixChannel;
     });
+
+    afterEach(() => vi.unstubAllEnvs());
 
     it('should have correct name and displayName', () => {
         const ch = new MatrixChannelClass();
@@ -467,15 +483,21 @@ describe('MatrixChannel', () => {
         expect(logger.warn).toHaveBeenCalled();
     });
 
-    it('connect with token should attempt to load matrix-js-sdk', async () => {
+    it('connect with token should configure and start the controlled Matrix SDK client', async () => {
         currentConfig = makeConfig({ matrix: { enabled: true, token: 'syt_fake_token' } });
         const ch = new MatrixChannelClass();
         await ch.connect();
-        // matrix-js-sdk is installed, so connect completes (may succeed or fail auth)
-        // Either way, the adapter should have attempted connection
-        const status = ch.getStatus();
-        expect(status.name).toBeTruthy();
+        expect(matrixSdk.createClient).toHaveBeenCalledWith({
+            baseUrl: 'https://matrix.example.invalid',
+            accessToken: 'syt_fake_token',
+            userId: '@fixture:example.invalid',
+        });
+        expect(matrixSdk.client.on).toHaveBeenCalledWith('Room.timeline', expect.any(Function));
+        expect(matrixSdk.client.startClient).toHaveBeenCalledWith({ initialSyncLimit: 0 });
+        expect(ch.getStatus()).toEqual({ name: 'Matrix', connected: true });
         await ch.disconnect();
+        expect(matrixSdk.client.stopClient).toHaveBeenCalledOnce();
+        expect(ch.getStatus().connected).toBe(false);
     });
 
     it('disconnect when client is null should be a no-op', async () => {
