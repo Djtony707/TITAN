@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
+import { OdysseyAnnouncement } from '@/components/OdysseyAnnouncement';
 import {
   Brain,
   ChevronDown,
@@ -539,6 +540,7 @@ export function TitanShell({ children }: { children: React.ReactNode }) {
       )}
 
       <main id="main-content" tabIndex={-1} className="titan-desktop-workspace relative min-h-0 min-w-0 flex-1 overflow-y-auto pb-16 pt-16 md:pb-0 md:pt-0 outline-none">
+        <OdysseyAnnouncement />
         <div className="titan-desktop-pane min-h-full">
           {children}
         </div>
