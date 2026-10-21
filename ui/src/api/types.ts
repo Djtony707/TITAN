@@ -113,8 +113,9 @@ export interface TitanConfig {
 export interface VoiceConfig {
   enabled: boolean;
   livekitUrl: string;
-  livekitApiKey: string;
-  livekitApiSecret: string;
+  /** Private server credentials are omitted from public configuration responses. */
+  livekitApiKey?: string;
+  livekitApiSecret?: string;
   agentUrl: string;
   ttsVoice: string;
   ttsEngine?: string;

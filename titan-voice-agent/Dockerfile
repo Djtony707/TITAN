@@ -5,11 +5,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Keep operator .env.local and other private build-context files out of image layers.
+COPY agent.py kokoro_tts.py validate_livekit.py ./
 
-# LiveKit agent expects these env vars
+# LiveKit credentials must be supplied privately by the operator.
 ENV LIVEKIT_URL=ws://localhost:7880
-ENV LIVEKIT_API_KEY=devkey
-ENV LIVEKIT_API_SECRET=secret
 
 CMD ["python", "agent.py", "start"]

@@ -68,9 +68,48 @@ const ENV_KEYS = [
     'DISCORD_TOKEN',
     'TELEGRAM_TOKEN',
     'SLACK_TOKEN',
+    'LIVEKIT_URL',
+    'LIVEKIT_API_KEY',
+    'LIVEKIT_API_SECRET',
 ];
 
 let savedEnv: Record<string, string | undefined> = {};
+
+describe('explicit LiveKit environment configuration', () => {
+    it('retains unrelated saved settings even when a legacy voice pair is unusable', () => {
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({ voice: { livekitApiKey: 'devkey', livekitApiSecret: 'secret' }, agent: { model: 'local/operator-model' } });
+        const config = loadConfig();
+        expect(config.agent.model).toBe('local/operator-model');
+        expect(config.voice.livekitApiKey).toBe('devkey');
+        expect(config.voice.livekitApiSecret).toBe('secret');
+        expect(mockAtomicWriteJsonFile).not.toHaveBeenCalled();
+    });
+
+    it('loads operator credentials without enabling voice or changing local F5 defaults', () => {
+        mockExistsSync.mockReturnValue(false);
+        process.env.LIVEKIT_URL = 'ws://127.0.0.1:7880';
+        process.env.LIVEKIT_API_KEY = 'synthetic_operator_key';
+        process.env.LIVEKIT_API_SECRET = 'synthetic_operator_secret_0123456789abcdef';
+        const config = loadConfig();
+        expect(config.voice.livekitUrl).toBe('ws://127.0.0.1:7880');
+        expect(config.voice.livekitApiKey).toBe('synthetic_operator_key');
+        expect(config.voice.livekitApiSecret).toBe('synthetic_operator_secret_0123456789abcdef');
+        expect(config.voice.enabled).toBe(false);
+        expect(config.voice.ttsUrl).toBe('http://localhost:5006');
+        expect(mockAtomicWriteJsonFile).not.toHaveBeenCalled();
+        expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('synthetic_operator_secret');
+    });
+
+    it('preserves explicit saved private credentials when environment overrides are absent', () => {
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({ voice: { livekitApiKey: 'synthetic_saved_key', livekitApiSecret: 'synthetic_saved_secret_0123456789abcdef' }, agent: { model: 'local/operator-model' } });
+        const config = loadConfig();
+        expect(config.voice.livekitApiKey).toBe('synthetic_saved_key');
+        expect(config.voice.livekitApiSecret).toBe('synthetic_saved_secret_0123456789abcdef');
+        expect(config.agent.model).toBe('local/operator-model');
+    });
+});
 
 beforeEach(() => {
     vi.clearAllMocks();

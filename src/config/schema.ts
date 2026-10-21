@@ -421,9 +421,9 @@ export const VoiceConfigSchema = z.object({
     /** LiveKit server WebSocket URL */
     livekitUrl: z.string().default('ws://localhost:7880'),
     /** LiveKit API key (matches livekit server config) */
-    livekitApiKey: z.string().default('devkey'),
+    livekitApiKey: z.string().default(''),
     /** LiveKit API secret (matches livekit server config) */
-    livekitApiSecret: z.string().default('secret'),
+    livekitApiSecret: z.string().default(''),
     /** URL of the voice agent (for health checks) */
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */

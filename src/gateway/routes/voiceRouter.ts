@@ -12,11 +12,13 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { execSync, spawn } from 'child_process';
 import { loadConfig } from '../../config/config.js';
+import type { VoiceConfig } from '../../config/schema.js';
 import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { processMessage } from '../../agent/agent.js';
 import { routeMessage } from '../../agent/multiAgent.js';
 import { voiceServiceFetch } from '../../security/voiceServiceAuth.js';
+import { hasPrivateLiveKitCredentials } from '../../security/livekitCredentials.js';
 
 // ESM shim — @types/node declares __dirname globally so tsc accepts it,
 // but it does NOT exist at ESM runtime (broke F5-TTS auto-start on prod).
@@ -56,6 +58,7 @@ export function createVoiceRouter(
     const cfg = loadConfig();
     const voice = cfg.voice;
     if (!voice.enabled) { res.json({ available: false, reason: 'Voice not enabled in config' }); return; }
+    if (!hasPrivateLiveKitCredentials(voice)) { res.json({ available: false, reason: 'Private LiveKit credentials are not configured' }); return; }
     try {
       const livekitHttp = voice.livekitUrl.replace('ws://', 'http://').replace('wss://', 'https://');
       const resp = await fetch(livekitHttp, { signal: AbortSignal.timeout(3000) });
@@ -66,13 +69,15 @@ export function createVoiceRouter(
   });
 
   router.get('/voice/config', (_req, res) => {
-    res.json(loadConfig().voice);
+    const publicVoice: Partial<VoiceConfig> = { ...loadConfig().voice };
+    delete publicVoice.livekitApiSecret;
+    res.json(publicVoice);
   });
 
   router.post('/livekit/token', async (req, res) => {
     const cfg = loadConfig();
     if (!cfg.voice?.enabled) { res.status(404).json({ error: 'Voice not enabled' }); return; }
-    if (!cfg.voice.livekitApiKey || !cfg.voice.livekitApiSecret) {
+    if (!hasPrivateLiveKitCredentials(cfg.voice)) {
       res.status(503).json({ error: 'LiveKit not configured' }); return;
     }
     try {
@@ -112,6 +117,7 @@ export function createVoiceRouter(
       { key: 'agent' as const, url: cfg.voice.agentUrl },
       { key: 'stt' as const, url: sttHealthUrl },
     ].map(async ({ key, url }) => {
+      if (key === 'livekit' && !hasPrivateLiveKitCredentials(cfg.voice)) return;
       try { const resp = await fetch(url, { signal: AbortSignal.timeout(3000) }); results[key] = resp.ok || resp.status < 500; }
       catch { results[key] = false; }
     }));

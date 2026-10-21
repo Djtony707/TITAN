@@ -422,8 +422,7 @@ function SettingsPanel() {
           ttsEngine,
           ttsUrl: ttsUrl || 'http://localhost:5005',
           sttUrl: config?.voice?.sttUrl ?? 'http://localhost:48421',
-          livekitApiKey: config?.voice?.livekitApiKey ?? '',
-          livekitApiSecret: config?.voice?.livekitApiSecret ?? '',
+          // Credentials are private server settings, absent from this form and GET /api/config.
           agentUrl: config?.voice?.agentUrl ?? '',
         },
       });
