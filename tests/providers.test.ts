@@ -3,9 +3,12 @@
  * Covers: LLMProvider.parseModelId, resolveModel, getModelAliases,
  *         PROVIDER_PRESETS, OpenAICompatProvider, discoverAllModels
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LLMProvider } from '../src/providers/base.js';
 import { PROVIDER_PRESETS, OpenAICompatProvider, type OpenAICompatConfig } from '../src/providers/openai_compat.js';
+import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
+
+const cliFixture = useExternalCliFixture();
 
 vi.mock('../src/config/config.js', () => ({
     loadConfig: () => ({
@@ -164,14 +167,18 @@ describe('discoverAllModels', () => {
     let discoverAllModels: typeof import('../src/providers/router.js').discoverAllModels;
 
     beforeEach(async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => Response.json({ models: [], data: [] })));
         const router = await import('../src/providers/router.js');
         discoverAllModels = router.discoverAllModels;
     });
+
+    afterEach(() => vi.unstubAllGlobals());
 
     it('should return an array of discovered models', async () => {
         const models = await discoverAllModels(true);
         expect(Array.isArray(models)).toBe(true);
         expect(models.length).toBeGreaterThan(0);
+        expect(cliFixture.invocations().every(call => call.cli === 'claude' && JSON.stringify(call.args) === '["--version"]')).toBe(true);
     });
 
     it('each model should have required fields', async () => {

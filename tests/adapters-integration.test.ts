@@ -10,6 +10,9 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 import { getAdapter, type AdapterContext } from '../src/agent/adapters/index.js';
+import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
+
+const cliFixture = useExternalCliFixture();
 
 function makeCtx(task: string, overrides: Partial<AdapterContext> = {}): AdapterContext {
     return {
@@ -148,17 +151,12 @@ describe('Claude Code Adapter', () => {
         expect(typeof adapter.execute).toBe('function');
     });
 
-    it('should produce a well-formed result', async () => {
-        // v5.5.6: relaxed from string-coupling. Tests adapter shape
-        // contract rather than coupling to a specific error message
-        // (which varies across environments: binary present, missing,
-        // nested sessions, JSON-stream output, etc).
+    it('should report a controlled CLI failure', async () => {
+        cliFixture.mode('error');
         const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 5_000 }));
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
-        }
+        expect(result.success).toBe(false);
+        expect(result.exitCode).toBe(1);
+        expect(result.content).toContain('synthetic-cli-error');
     });
 });
 
@@ -171,15 +169,19 @@ describe('Codex Adapter', () => {
         expect(adapter.displayName).toBe('Codex');
     });
 
-    it('should produce a well-formed result', async () => {
-        // v5.5.6: relaxed from string-coupling. Codex now returns
-        // JSON-stream output on failure; the original "Codex CLI not
-        // found" string check no longer matches.
+    it('should preserve a controlled CLI failure and stderr', async () => {
+        cliFixture.mode('error');
         const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 5_000 }));
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
-        }
+        expect(result.success).toBe(false);
+        expect(result.exitCode).toBe(7);
+        expect(result.content).toBe('synthetic-cli-error');
+    });
+
+    it('should terminate a controlled executable at the requested timeout', async () => {
+        cliFixture.mode('timeout');
+        const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 200 }));
+        expect(result.success).toBe(false);
+        expect(result.content).toBe('Execution timed out');
+        expect(result.durationMs).toBeLessThan(3000);
     });
 });

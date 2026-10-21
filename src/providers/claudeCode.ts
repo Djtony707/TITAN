@@ -18,10 +18,9 @@ function findClaudeBinary(): string | null {
     for (const dir of pathDirs) {
         const p = `${dir}/claude`;
         if (existsSync(p)) {
-            // In non-TTY environments Claude Code may hang on --print,
-            // so we probe with a short timeout. If it doesn't respond
-            // we treat it as unavailable.
-            const probe = spawnSync(p, ['--print', 'hello'], { timeout: 3000, encoding: 'utf-8' });
+            // Discovery checks installation metadata only. A prompt here would
+            // dispatch inference before chat's explicit user-opt-in gate.
+            const probe = spawnSync(p, ['--version'], { timeout: 3000, encoding: 'utf-8' });
             if (probe.status === 0) {
                 return p;
             }

@@ -51,6 +51,7 @@
     "lint:fix": "eslint src/ --ext .ts --fix",
     "test": "vitest run --reporter=default",
     "test:watch": "vitest",
+    "test:external-cli": "tsx scripts/check-external-cli-adapter.ts",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",

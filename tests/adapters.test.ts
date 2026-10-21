@@ -10,6 +10,9 @@ vi.mock('../src/utils/logger.js', () => ({
 
 // Import after mocks
 import { getAdapter, listAdapters, registerAdapter, type ExternalAdapter, type AdapterContext } from '../src/agent/adapters/index.js';
+import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
+
+const cliFixture = useExternalCliFixture();
 
 describe('Adapter Registry', () => {
     it('should have claude-code adapter registered', () => {
@@ -147,12 +150,7 @@ describe('Bash Adapter', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    it('should return a non-empty result (success or helpful error)', async () => {
-        // v5.5.6: relaxed from string-coupling. The adapter should always
-        // return a result; if it fails, the failure message should be
-        // non-trivial. Behavior across environments (binary present /
-        // missing / nested sessions / JSON-stream output) is too varied
-        // to assert specific strings.
+    it('should pass the task to a controlled Claude executable and return its output', async () => {
         const adapter = getAdapter('claude-code')!;
         const ctx: AdapterContext = {
             task: 'echo test',
@@ -162,21 +160,14 @@ describe('Claude Code Adapter', () => {
             timeoutMs: 5_000,
         };
         const result = await adapter.execute(ctx);
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
-        }
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('synthetic-claude-result');
+        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--version'], ['--print', 'echo test']]);
     });
 });
 
 describe('Codex Adapter', () => {
-    it('should return a non-empty result (success or helpful error)', async () => {
-        // v5.5.6: relaxed from string-coupling. Codex now returns JSON-
-        // stream output on failure rather than a plain "not found"
-        // string, so the original assertion was wrong. Verify the shape
-        // contract instead: result is well-formed and any failure
-        // includes diagnostic content.
+    it('should pass stdin, arguments and callback metadata to a controlled Codex executable', async () => {
         const adapter = getAdapter('codex')!;
         const ctx: AdapterContext = {
             task: 'echo test',
@@ -186,10 +177,11 @@ describe('Codex Adapter', () => {
             timeoutMs: 5_000,
         };
         const result = await adapter.execute(ctx);
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
-        }
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('synthetic-codex-result');
+        expect(cliFixture.invocations()).toEqual([{
+            cli: 'codex', args: ['exec', '--json', '-'], input: 'echo test',
+            apiUrl: ctx.titanApiUrl, runId: ctx.titanRunId, issueId: ctx.titanIssueId,
+        }]);
     });
 });

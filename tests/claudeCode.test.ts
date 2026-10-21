@@ -13,6 +13,9 @@ vi.mock('../src/utils/logger.js', () => ({
 
 import { ClaudeCodeProvider } from '../src/providers/claudeCode.js';
 import { isClaudeCodeAllowed, type ChatOptions } from '../src/providers/base.js';
+import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
+
+const cliFixture = useExternalCliFixture();
 
 describe('ClaudeCodeProvider', () => {
     const provider = new ClaudeCodeProvider();
@@ -36,11 +39,14 @@ describe('ClaudeCodeProvider', () => {
     });
 
     it('healthCheck returns false when `claude` binary is not on PATH (CI env)', async () => {
-        // In a sandboxed CI env, `claude` is unlikely to be installed.
-        // On Tony's Titan PC with Claude Code installed, this would return true.
-        // Either way, healthCheck must not throw.
+        vi.stubEnv('PATH', '');
         const healthy = await provider.healthCheck();
-        expect(typeof healthy).toBe('boolean');
+        expect(healthy).toBe(false);
+    });
+
+    it('healthCheck probes metadata only and never sends an inference prompt', async () => {
+        expect(await provider.healthCheck()).toBe(true);
+        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--version']]);
     });
 });
 
@@ -102,6 +108,7 @@ describe('Claude Code gate — spawnStream rejects without the flag', () => {
         await expect(
             provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
         ).rejects.toThrow(/Claude Code blocked for autonomous use/);
+        expect(() => cliFixture.invocations()).toThrow(); // no executable was started
     });
 
     it('throws with the new providerOptions guidance in the error message', async () => {
