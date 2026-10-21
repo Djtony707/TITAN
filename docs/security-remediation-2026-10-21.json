@@ -2,21 +2,67 @@
   "schemaVersion": 1,
   "date": "2026-10-21",
   "repository": "Djtony707/TITAN",
-  "scope": "local security repair candidate; no publication or deployment",
+  "scope": "Reviewed security repair branch published as user-approved draft PR193; latest local followup verification, no merge/npm release/deployment",
   "worktree": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security",
   "branch": "codex/titan-security-2026-10-21",
   "baseCommit": "63d0a7438192e9216faa39457124574ab53e6ecb",
   "releaseReady": false,
   "githubSnapshot": {
     "dependabotOpen": {
+      "total": 139,
+      "critical": 6,
+      "high": 49,
+      "medium": 68,
+      "low": 16,
+      "recordedAtUtc": "2026-10-21T21:09:33.916467+00:00",
+      "scope": "Later observed default-branch alerts, not candidate reachable-vulnerability count"
+    },
+    "secretScanningOpen": 0,
+    "codeScanning": {
+      "status": "first_advanced_analysis_completed_with_open_findings",
+      "workflowPresent": true,
+      "defaultSetup": "not-configured; advanced workflow is configured",
+      "workflowRun": 39676099237,
+      "analysisId": 2000188452,
+      "ref": "refs/pull/193/merge",
+      "mergeCommit": "d066592c4728b004a504460096dae3162bea6f59",
+      "conclusion": "success",
+      "results": 19,
+      "high": 15,
+      "medium": 4,
+      "analysisRules": 103,
+      "analysisErrors": "",
+      "analysisWarnings": "",
+      "all19BoundedSourceFlowsTriaged": true,
+      "openFindingsNotDismissed": true,
+      "triageGroups": {
+        "cors": 1,
+        "rate": 5,
+        "confined-read": 2,
+        "checkpoint-path": 5,
+        "upload-log": 2,
+        "fixture-race": 2,
+        "content-write": 2
+      },
+      "triageIsNotCleanScanOrExploitAbsenceProof": true,
+      "recordedAtUtc": "2026-10-21T21:13:18.462094+00:00",
+      "summaryReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-summary.json",
+      "triageReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+    },
+    "alertsSuppressed": 0,
+    "remoteChanges": true,
+    "reviewedExistingPullRequests": [
+      174,
+      176
+    ],
+    "initialDependabotOpen": {
       "total": 138,
       "critical": 6,
       "high": 49,
       "medium": 67,
       "low": 16
     },
-    "secretScanningOpen": 0,
-    "codeScanning": {
+    "initialCodeScanning": {
       "status": "missing_coverage",
       "apiStatus": 404,
       "defaultSetup": "not-configured",
@@ -24,12 +70,18 @@
       "workflowPresentAtSnapshot": false,
       "candidateWorkflowPrepared": true
     },
-    "alertsSuppressed": 0,
-    "remoteChanges": false,
-    "reviewedExistingPullRequests": [
-      174,
-      176
-    ]
+    "initialRemoteChanges": false,
+    "addedDependabotAlert": {
+      "number": 470,
+      "ghsa": "GHSA-6prh-2h8m-c8cw",
+      "package": "@modelcontextprotocol/sdk",
+      "firstPatchedVersion": "1.32.0",
+      "candidateVersion": "1.32.1",
+      "candidateAffected": false,
+      "alertsClosed": 0,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/dependabot-added-alert-470-candidate-check.json"
+    },
+    "secretScanningScope": "Retained initial zero-open snapshot; no fresh secret-alert API check during this followup"
   },
   "dependencyAudits": {
     "root": {
@@ -172,7 +224,7 @@
     },
     "codeQL": {
       "workflow": ".github/workflows/codeql.yml",
-      "localConfiguration": "prepared and independently reviewed",
+      "localConfiguration": "committed and independently reviewed; first hosted analysis completed",
       "eligiblePublicRepository": true,
       "language": "javascript-typescript",
       "buildMode": "none",
@@ -193,7 +245,38 @@
       "actionCommit": "9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
       "checkoutCommit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
       "yamlValidation": "passed",
-      "hostedAnalysisRun": false
+      "hostedAnalysisRun": true,
+      "firstHostedRun": {
+        "status": "first_advanced_analysis_completed_with_open_findings",
+        "workflowPresent": true,
+        "defaultSetup": "not-configured; advanced workflow is configured",
+        "workflowRun": 39676099237,
+        "analysisId": 2000188452,
+        "ref": "refs/pull/193/merge",
+        "mergeCommit": "d066592c4728b004a504460096dae3162bea6f59",
+        "conclusion": "success",
+        "results": 19,
+        "high": 15,
+        "medium": 4,
+        "analysisRules": 103,
+        "analysisErrors": "",
+        "analysisWarnings": "",
+        "all19BoundedSourceFlowsTriaged": true,
+        "openFindingsNotDismissed": true,
+        "triageGroups": {
+          "cors": 1,
+          "rate": 5,
+          "confined-read": 2,
+          "checkpoint-path": 5,
+          "upload-log": 2,
+          "fixture-race": 2,
+          "content-write": 2
+        },
+        "triageIsNotCleanScanOrExploitAbsenceProof": true,
+        "recordedAtUtc": "2026-10-21T21:13:18.462094+00:00",
+        "summaryReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-summary.json",
+        "triageReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+      }
     },
     "externalExecution": {
       "crossProviderShell": false,
@@ -363,10 +446,11 @@
       "nestedEntryReferences": 4,
       "nestedWorkflowsActiveInCurrentRepositoryLayout": false,
       "selectedActionVersionsTriggersInputsCommandsPermissionsChanged": false,
-      "hostedRunStarted": false,
       "nestedLivekitCommitUnsigned": true,
       "nestedLivekitCompositeInternalCheckoutStillMutable": true,
-      "transitiveActionTreeImmutabilityClaim": false
+      "transitiveActionTreeImmutabilityClaim": false,
+      "hostedExecutionDuringLocalPinAuthoring": false,
+      "laterHostedExecution": "Initial authorized PR193 CI/Eval/CodeQL runs executed later; their exact results are recorded separately."
     },
     "optionalVoiceService": {
       "commit": "32c8da4a1582b3bc3538eb03c4dc2bc2218cd803",
@@ -413,7 +497,29 @@
         "audio": "96-bit randomcapability/shortTTL; audio maycontainprivatespeech"
       },
       "optionalExample": "local/no-auth only; no bearerforwarding, no anonymousfallback for protectedgateway",
-      "documentation": "docs/gateway-authentication.md"
+      "documentation": "docs/gateway-authentication.md",
+      "postPublicationRateLimit": {
+        "commit": "53fef0c98d851885a6f3c72e2c42a397cff86644",
+        "socketPeerOnly": true,
+        "separateLimiterBuckets": true,
+        "existingThresholdsCleanupCapPreserved": true,
+        "redCases": 2,
+        "focusedPassed": 78,
+        "typecheckExitCode": 0,
+        "lintErrors": 0,
+        "lintWarnings": 247,
+        "independentSourceReview": "passed",
+        "reverseProxyClientsSharePeerQuota": true
+      },
+      "postPublicationTokenLogin": {
+        "commit": "27fb565281e552f081eefdf0866f32ddd8b236a7",
+        "redCases": 1,
+        "focusedPassed": 79,
+        "tokenModeRoundtrip": "configured credential accepted; no password-session persistence",
+        "passwordModeRoundtrip": "separate session accepted; credential not echoed",
+        "successfulLoginNoStore": true,
+        "independentSourceReview": "passed"
+      }
     },
     "livekitDefaults": {
       "commit": "73edabba6c139fb0c19c53b6b5ea958e5a00ae14",
@@ -440,6 +546,49 @@
       "postToken": "503/no-store before credential reads or SDK construction",
       "setup": "exit1 before env writes/clone/install",
       "testsPassed": 4
+    },
+    "autopilotControls": {
+      "apiCommit": "bbc25c136f7047c9e0d98bcc57d40856f31729d2",
+      "schedulerCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "durableAcknowledgmentOnly": true,
+      "failedDisableStopsCurrentProcessButWarnsRestartRisk": true,
+      "failedEnableDoesNotStartOrMutateDryRun": true,
+      "strictProvidedBooleansBeforeConfigOrEffects": true,
+      "implicitObjectTogglePreserved": true,
+      "retiredScheduledCallbacksRejectByGenerationHandleAndLatestEnabled": true,
+      "manualRunsUnchanged": true,
+      "inFlightDrainClaim": false,
+      "realRouteCasesPassed": 18,
+      "routeGroupPassed": 82,
+      "schedulerCasesPassed": 7,
+      "engineGroupPassed": 87,
+      "apiReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-autopilot-controls.json",
+      "schedulerReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/autopilot-scheduler-security-receipt.json"
+    },
+    "evalCiAuthentication": {
+      "commit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+      "isolatedProfileMode": "0700",
+      "configMode": "0600",
+      "freshRandomTokenBytes": 32,
+      "maskedBeforeGithubEnv": true,
+      "usesRepositoryOrOwnerSecrets": false,
+      "exactLoopbackEphemeralPort": true,
+      "explicitStubBenchSupervised": true,
+      "all11SuitesAnd80PercentThresholdPreserved": true,
+      "immutableActionPinsPreserved": true,
+      "emptySuitesFailClosed": true,
+      "boundedHealthAndEvalTimeouts": true,
+      "ownedPidStoppedBeforeProfileRemoval": true,
+      "tokenAbsentFromRetainedGatewayLog": true,
+      "tokenInCurlArgvWithinEphemeralJob": true,
+      "acceptanceCompiledSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/eval-workflow-acceptance.json"
+    },
+    "linuxPreviewFixture": {
+      "commit": "721d26d445cfc4ec6bb725d458dd219fb64c719f",
+      "productPolicyUnchanged": true,
+      "privateCanonicalScratchOutsideAllowedRoots": true,
+      "preservesOutside404Registered200SymlinkAndTmpAllowance": true
     }
   },
   "secrets": {
@@ -489,7 +638,9 @@
       "tests/settings-voice-security.test.ts": 1,
       "titan-voice-agent/test_credentials.py": 1,
       "tests/legacy-livekit-security.test.ts": 1
-    }
+    },
+    "scanScope": "Dated e5a53171 pre-publication full-history/current scan:1882tracked/24current/38history; no new broad scan in this followup. Later small source/fixture/CI diffs received direct review.",
+    "currentTrackedFilesScope": "The1882 value is the scanned e5 checkpoint; it is not the tracked-file inventory of the later fb1 source."
   },
   "verification": {
     "backendBuild": "passed",
@@ -502,7 +653,8 @@
       "errors": 0,
       "warnings": 247,
       "exitCode": 0,
-      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-lint.log"
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-lint.log",
+      "logSha256": "84117394bf12d1927b7df388035f240049157c3937076254d4284d5e2f98cb74"
     },
     "voiceLint": "passed with warnings",
     "compatibility": {
@@ -522,16 +674,18 @@
     },
     "fullSuite": {
       "status": "passed",
-      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
-      "filesPassed": 433,
-      "filesTotal": 433,
-      "casesPassed": 8947,
+      "sourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "filesPassed": 435,
+      "filesTotal": 435,
+      "casesPassed": 8976,
       "casesSkipped": 9,
-      "casesTotal": 8956,
+      "casesTotal": 8985,
       "exitCode": 0,
       "unhandledErrors": 0,
-      "durationSeconds": 82.88,
-      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-release-candidate-e5a53171.log"
+      "durationSeconds": 82.92,
+      "wallDurationSeconds": 83.41,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-full-suite.log",
+      "logSha256": "a876948c7a56d47784d08dc839a48571af8890bb2c13d27baf18c45fe0ba2114"
     },
     "baselineComparison": {
       "configFailureReproducedOnOriginalMainLock": true,
@@ -695,9 +849,9 @@
       "testFixtureCommit": "60359c97",
       "productAssertionsLoosened": false
     },
-    "sourceAndLockBindingReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-candidate-source.json",
+    "sourceAndLockBindingReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-verification.json",
     "finalBuildLogs": {
-      "backend": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-backend-build.log",
+      "backend": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-backend-build.log",
       "missionControl": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-ui-build.log",
       "standaloneVoice": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-standalone-voice-build.log"
     },
@@ -761,12 +915,10 @@
     },
     "legacyVoiceHoldCasesPassed": 4,
     "finalOwnedProcessCheck": {
-      "checkedAtUtc": "2026-10-21T21:01:37.393132+00:00",
-      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
-      "remainingOwnedFixtureOrMcpProcesses": 0,
-      "scope": "Exact isolated workspace/evidence process argument and selected Node/browser/CLI/MCP working-directory markers; current audit process/ancestors excluded; no unrelated process killed",
-      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-owned-process-check.json",
-      "unrelatedProcessesKilled": false
+      "scope": "Exact process groups started by post-publication final verification wrapper; separate broader historical receipt retained",
+      "remaining": 0,
+      "checkedAtUtc": "2026-10-21T21:33:22.669662+00:00",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-verification.json"
     },
     "finalBuildExitCodes": {
       "backend": 0,
@@ -783,14 +935,188 @@
       "standaloneVoiceProductionFindings": 0,
       "remaining": "GHSA-vfj7-8cjw-p6xm, development lint tooling; no patched release identified",
       "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-dependency-audit.log"
-    }
+    },
+    "prePublicationSourceE5FullSuite": {
+      "status": "passed",
+      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "filesPassed": 433,
+      "filesTotal": 433,
+      "casesPassed": 8947,
+      "casesSkipped": 9,
+      "casesTotal": 8956,
+      "exitCode": 0,
+      "unhandledErrors": 0,
+      "durationSeconds": 82.88,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-release-candidate-e5a53171.log"
+    },
+    "prePublicationSourceAndLockBindingReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-candidate-source.json",
+    "prePublicationRootLint": {
+      "errors": 0,
+      "warnings": 247,
+      "exitCode": 0,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-lint.log"
+    },
+    "prePublicationFinalOwnedProcessCheck": {
+      "checkedAtUtc": "2026-10-21T21:01:37.393132+00:00",
+      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "remainingOwnedFixtureOrMcpProcesses": 0,
+      "scope": "Exact isolated workspace/evidence process argument and selected Node/browser/CLI/MCP working-directory markers; current audit process/ancestors excluded; no unrelated process killed",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-owned-process-check.json",
+      "unrelatedProcessesKilled": false
+    },
+    "postPublicationVerification": {
+      "schemaVersion": 1,
+      "startedAtUtc": "2026-10-21T21:31:48.550051+00:00",
+      "sourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "sourceTree": "2938218854127c6bddfca69b92dffc3d129c1bc1",
+      "previousVerifiedSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "statusBefore": [],
+      "lockSha256": {
+        "package-lock.json": "0c497e3464a955a810388db61dfbd9d63fc893e6ca9effc27ec9a5ddb731b202",
+        "ui/package-lock.json": "35b2686d97b740dda7d1d195170598a2374c46f5b01ed4262c5c978cf84ab196",
+        "examples/mcp-server/package-lock.json": "0204517041227a28a7485a225926b1859fd5f83a0903e7278faff37f6572eb6d",
+        "titan-voice-ui/pnpm-lock.yaml": "60145bd273ae02819d9c20c615a38e92727a65ee95e4334203109a660e5ab82d"
+      },
+      "nodeVersion": "v24.22.1",
+      "scope": "One final local default full suite and backend build/type/lint for reviewed PR followups; no UI/standalone rebuild, audit refresh, deployment, provider integration or hosted rerun.",
+      "environment": {
+        "homeIsolation": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-isolated-home.mjs",
+        "testHome": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-test-home-1792618308549557000",
+        "globalTitanHomeUnset": true,
+        "loopbackGuard": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/loopback-network-guard.mjs",
+        "nativeChildOsSandbox": false,
+        "realProviderIntegrationRequested": false
+      },
+      "checks": {
+        "full-suite": {
+          "command": [
+            "npm",
+            "test",
+            "--",
+            "--max-workers=2"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 83.41,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-full-suite.log",
+          "logSha256": "a876948c7a56d47784d08dc839a48571af8890bb2c13d27baf18c45fe0ba2114",
+          "filesPassed": 435,
+          "testsPassed": 8976,
+          "testsSkipped": 9,
+          "testsTotal": 8985,
+          "suiteSummary": [
+            "Test Files  435 passed (435)",
+            "Tests  8976 passed | 9 skipped (8985)",
+            "Duration  82.92s (transform 6.19s, setup 0ms, import 20.60s, tests 99.73s, environment 23ms)"
+          ]
+        },
+        "backend-build": {
+          "command": [
+            "npm",
+            "run",
+            "build"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 0.87,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-backend-build.log",
+          "logSha256": "c52b1662bc0d4213092143349aa16a2c935bbd514345270bd07507ee4d6c6bd8"
+        },
+        "typecheck": {
+          "command": [
+            "npx",
+            "tsc",
+            "--noEmit"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 4.95,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-typecheck.log",
+          "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "lint": {
+          "command": [
+            "npm",
+            "run",
+            "lint"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 4.81,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-lint.log",
+          "logSha256": "84117394bf12d1927b7df388035f240049157c3937076254d4284d5e2f98cb74",
+          "errors": 0,
+          "warnings": 247
+        }
+      },
+      "ownedProcessGroups": [
+        89912,
+        92780,
+        92801,
+        92852
+      ],
+      "completedAtUtc": "2026-10-21T21:33:22.669662+00:00",
+      "statusAfter": [],
+      "locksUnchanged": true,
+      "remainingExactOwnedGroupProcesses": [],
+      "privateTestHomeRemoved": true,
+      "passed": true
+    },
+    "buildSourceBindings": {
+      "latestBackendBuildAndRootTypesLint": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "unchangedMissionControlAndStandaloneVoiceRetainedBuilds": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "allFourLocksUnchanged": true,
+      "freshAuditOrUiVoiceBuildRepeated": false
+    },
+    "postPublicationAuthFocusedReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-auth-followups.json",
+    "postPublicationAutopilotReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-autopilot-controls.json",
+    "initialHostedFailures": {
+      "head": "fd133ea61dc36704fd29e18276dd0e8bcec19807",
+      "ci": {
+        "run": 39676099151,
+        "url": "https://github.com/Djtony707/TITAN/actions/runs/39676099151",
+        "conclusion": "failure",
+        "filesPassed": 431,
+        "filesFailed": 1,
+        "testsPassed": 8908,
+        "testsFailed": 1,
+        "testsSkipped": 12,
+        "cause": "Preview fixture under Linux /tmp collided with deliberately allowed preview policy",
+        "repairCommit": "721d26d445cfc4ec6bb725d458dd219fb64c719f",
+        "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-initial-ci-39676099151.log"
+      },
+      "eval": {
+        "run": 39676099266,
+        "url": "https://github.com/Djtony707/TITAN/actions/runs/39676099266",
+        "conclusion": "failure",
+        "evalSuitesRan": false,
+        "cause": "Unconfigured fresh default token auth refused gateway boot; old health/eval requests also lacked bearer",
+        "repairCommit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+        "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-initial-eval-39676099266.log"
+      },
+      "originalRunsPreservedNoRerun": true
+    },
+    "workflowLocalAcceptance": {
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/eval-workflow-acceptance.json",
+      "compiledSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "workflowRepairCommit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+      "all11SuitesMeet80Percent": true,
+      "passed": 55,
+      "total": 57,
+      "healthExpectedStatusAssertionsPassed": 3,
+      "postmanExpected401ExitCode": 1,
+      "postman200ExitCode": 0,
+      "emptySuitePriorExit": 0,
+      "emptySuiteRepairedExit": 1,
+      "ownedGatewayGone": true,
+      "privateProfileRemoved": true,
+      "tokenExportFileRemoved": true,
+      "noRealProviderIntegrationRequested": true
+    },
+    "remainingOwnedFixtureOrMcpProcessesScope": "The retained broader zero-process receipt belongs to e5; the final followup separately checks its exact owned process groups."
   },
   "releaseBlockers": [
     "Unpatched high advisory in active voice development lint tooling",
     "Historical credential exposure needs owner rotation/validation",
-    "First hosted CodeQL analysis is pending authorized publication",
+    "19 open first-hosted CodeQL findings remain; bounded source-flow triage does not dismiss findings or prove exploit absence",
+    "Followup hosted CI/Eval/CodeQL results are not observed in this local report and must be checked separately before merge",
     "Production patched-runtime verification and rollout have not been performed",
-    "Explicit GitHub GO required before push",
     "External-agent timeout descendant cleanup is not verified; parent termination is not complete process-tree cancellation",
     "Runtime self-mod application is intentionally unavailable until immutable review/target/approval binding is designed and independently reviewed",
     "Unadjudicated static-analysis audit probes and parser/timeout/size coverage gaps require release review",
@@ -802,7 +1128,8 @@
   ],
   "publicationRule": {
     "source": "/Users/michaelelliott/dev/TitanBot/TITAN-main/AGENTS.md:11",
-    "instruction": "No GitHub push, no npm publish, no @next tag without Tony's GO."
+    "instruction": "No GitHub push, no npm publish, no @next tag without Tony's GO.",
+    "humanAuthorization": "Explicit user approval received for branch push and draft PR193; original no-release/no-deploy boundaries remain."
   },
   "priorCodeCommits": [
     "e5bb94a9",
@@ -825,7 +1152,13 @@
     "60359c97",
     "281c2dae",
     "73edabba",
-    "e5a53171"
+    "e5a53171",
+    "721d26d4",
+    "cfff1860",
+    "53fef0c9",
+    "27fb5652",
+    "bbc25c13",
+    "fb1fab46"
   ],
   "staticAnalysis": {
     "schemaVersion": 1,
@@ -891,7 +1224,7 @@
       {
         "group": "Action reference pins",
         "matches": 44,
-        "disposition": "Reviewed repair: root29 entry references (26 changed,3 CodeQL already pinned) plus4 nested references now immutable. No hosted execution. Pinned unsigned LiveKit composite still has an upstream mutable checkout reference; no transitive immutability claim."
+        "disposition": "Historical local pin-authoring checkpoint: root29 entry references (26 changed,3 CodeQL already pinned) plus4 nested references were made immutable. Pin authoring started no hosted execution; the later authorized initial PR CI/Eval/CodeQL runs and results are recorded separately. The pinned unsigned LiveKit composite still has an upstream mutable checkout reference; no transitive immutability claim."
       },
       {
         "group": "HTML and response sinks",
@@ -1178,7 +1511,7 @@
           "11d3c41e",
           "485e35e1"
         ],
-        "tests": "Semantic YAML checks and targeted action-pin rules;26root mutable refs+4nested refs repaired,3root CodeQL refs already pinned; no workflow run"
+        "tests": "Semantic YAML checks and targeted action-pin rules;26root mutable refs+4nested refs repaired,3root CodeQL refs already pinned; no workflow run during that local pin validation; later hosted results are separate"
       },
       {
         "boundary": "Optional voice-server auth/default-bind",
@@ -1264,7 +1597,33 @@
       "snapshot": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/snapshot.json",
       "scannerLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/scanner.log"
     },
-    "finalReviewedSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8"
+    "finalReviewedSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+    "postPublicationHostedSourceTriage": {
+      "codeqlRun": 39676099237,
+      "results": 19,
+      "high": 15,
+      "medium": 4,
+      "groups": {
+        "cors": 1,
+        "rate": 5,
+        "confined-read": 2,
+        "checkpoint-path": 5,
+        "upload-log": 2,
+        "fixture-race": 2,
+        "content-write": 2
+      },
+      "allSourceFlowGroupsReviewed": true,
+      "alertsDismissed": 0,
+      "newSourceRepairs": [
+        "53fef0c9",
+        "bbc25c13",
+        "fb1fab46"
+      ],
+      "freshBroadSemgrepScan": false,
+      "historicalSemgrepBindingPreserved": true,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+    },
+    "latestSourceScope": "Historical Semgrep snapshot and e5 targeted scanner binding retained; fb1 followup source received focused review/tests and first-hosted CodeQL flow triage, without a repeated broad Semgrep scan."
   },
   "operationalScope": {
     "sourceTrackOnly": true,
@@ -1281,5 +1640,22 @@
     "separateLivePermissionAndIngressProtectionsApplied": true,
     "separatelyInventoriedLiveNode": "22.23.2; privatepatchedruntime notactivated; source authoringdidnotperformliveinventory"
   },
-  "sourceCheckpointCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8"
+  "sourceCheckpointCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+  "baseCommitScope": "Historical checkout baseline63d; separately approved README-only main commit a17b28a7 is outside this security freeze; do not infer current PRbase from this field.",
+  "publication": {
+    "pullRequest": 193,
+    "url": "https://github.com/Djtony707/TITAN/pull/193",
+    "draftAtInitialReadback": true,
+    "userApprovedBranchPushAndDraft": true,
+    "initialPublishedHead": "fd133ea61dc36704fd29e18276dd0e8bcec19807",
+    "followupSourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+    "latestLocalVerificationAtUtc": "2026-10-21T21:33:22.669662+00:00",
+    "hostedFollowupResultsObservedInThisReport": false,
+    "merged": false,
+    "npmReleased": false,
+    "sourceDeployed": false,
+    "separateMainReadmeOnlyCommit": "a17b28a7bad4f092093ad83415743f881321f3af",
+    "separateUiNoticeIncluded": false,
+    "publicationDoesNotAuthorizeMergeReleaseOrDeployment": true
+  }
 }
