@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 const TITAN_URL = process.env.TITAN_URL ?? "http://localhost:48420";
 const MCP_VERSION = "1.0.0";
@@ -221,26 +222,58 @@ async function runStdioServer() {
 // HTTP Transport (Optional)
 // ============================================================
 
+const MAX_HTTP_BODY_BYTES = 1024 * 1024;
+
+function readHttpBody(req: IncomingMessage, res: ServerResponse): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let oversized = false;
+    req.on("data", (chunk: Buffer) => {
+      if (oversized) return;
+      bytes += chunk.length;
+      if (bytes > MAX_HTTP_BODY_BYTES) {
+        oversized = true;
+        chunks.length = 0;
+        res.writeHead(413, { "Content-Type": "text/plain", Connection: "close" });
+        res.end("Request body exceeds 1 MiB");
+        resolve(null);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.once("end", () => resolve(oversized ? null : Buffer.concat(chunks).toString("utf8")));
+    req.once("error", reject);
+    req.once("aborted", () => reject(new Error("Request aborted")));
+  });
+}
+
 async function runHttpServer(port: number = 48421) {
   console.log(`TITAN MCP Server — Starting HTTP on port ${port}...\n`);
   console.log(`Connected to TITAN gateway at ${TITAN_URL}`);
-  console.log(`MCP endpoint: http://localhost:${port}/mcp\n`);
+  console.log(`MCP endpoint: http://127.0.0.1:${port}/mcp\n`);
 
   const { createServer } = await import("node:http");
 
   const server = createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/mcp") {
-      let body = "";
-      for await (const chunk of req) {
-        body += chunk;
+      // This unauthenticated transport is for local machine clients, not browsers.
+      if (req.headers.origin) {
+        res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
+        res.end("Browser-origin requests are not supported");
+        req.resume();
+        return;
       }
 
       try {
+        const body = await readHttpBody(req, res);
+        if (body === null) return;
         const request = JSON.parse(body) as JsonRpcRequest;
         const response = await handleRequest(request);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(response));
       } catch (err) {
+        if (res.destroyed) return;
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -264,8 +297,8 @@ async function runHttpServer(port: number = 48421) {
     }
   });
 
-  server.listen(port);
-  console.log(`HTTP server listening on :${port}`);
+  server.listen(port, "127.0.0.1");
+  console.log(`HTTP server listening on 127.0.0.1:${port}`);
 }
 
 // ============================================================

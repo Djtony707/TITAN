@@ -29,9 +29,20 @@ npm install
 # Start MCP server in stdio mode
 npm start
 
+# Optional HTTP transport for local machine clients
+MCP_TRANSPORT=http npm start
+
 # Or use directly with TITAN
 npx titan-agent mcp
 ```
+
+The example's HTTP transport listens only on `127.0.0.1:48421` (`MCP_PORT`
+changes the port). It proxies tools to `TITAN_URL`, defaults to the local gateway,
+and does not add authentication. Requests with a browser `Origin` are rejected;
+use stdio or a local machine client. JSON request bodies are limited to 1 MiB;
+larger requests return HTTP 413 before any tool call reaches the gateway.
+
+Run `npm test` and `npm run typecheck` to check the local transport fixtures.
 
 ## Configuring MCP Clients
 
