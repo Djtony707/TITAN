@@ -115,9 +115,9 @@ services:
     environment:
       - SONARR_URL=http://sonarr:8989
       - RADARR_URL=http://radarr:7878
-      - SONARR_API_KEY=ef554ebb60314d3c94e7c465f45eab74
-      - RADARR_API_KEY=b8ded7657c1c4d10b4a5051485b2acb2
-      - TMDB_API_KEY=1fdee3d018c7af868ad62d2657d9ccb7
+      - SONARR_API_KEY=${SONARR_API_KEY:-}
+      - RADARR_API_KEY=${RADARR_API_KEY:-}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
     volumes:
       - ./data/ai-agent:/app
       - ./data/logs:/app/logs
