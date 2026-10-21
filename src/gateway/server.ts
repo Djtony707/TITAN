@@ -996,21 +996,24 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   const defaultRateLimitWindowMs = options?.rateLimitWindowMs ?? 60000;
   const defaultRateLimitMax = options?.rateLimitMax ?? 30;
   const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+  let rateLimitBucket = 0;
 
   /**
-   * Get a consistent client IP address for rate limiting.
-   * Falls back through: X-Forwarded-For → req.ip → socket remoteAddress
+   * Rate-limit the connected peer. Forwarding headers are untrusted input;
+   * reverse-proxy clients deliberately share their proxy's quota.
    */
   function getClientIp(req: Request): string {
-      return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-          || req.ip
-          || req.socket?.remoteAddress
+      return req.socket?.remoteAddress
           || 'unknown';
   }
 
   function rateLimit(windowMs: number, maxRequests: number) {
+      // Keep independent limits from consuming each other's quotas while
+      // retaining the shared bounded cleanup and shutdown lifecycle.
+      const bucket = rateLimitBucket++;
       return (req: Request, res: Response, next: NextFunction) => {
-          const key = getClientIp(req);
+          const client = getClientIp(req);
+          const key = `${bucket}:${client}`;
           const now = Date.now();
           const entry = rateLimitStore.get(key);
           if (!entry || now > entry.resetAt) {
@@ -1021,7 +1024,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
               next();
           } else {
               const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-              logger.warn(COMPONENT, `[RateLimit] Client ${key} rate limited (${entry.count}/${maxRequests} in ${windowMs}ms)`);
+              logger.warn(COMPONENT, `[RateLimit] Client ${client} rate limited (${entry.count}/${maxRequests} in ${windowMs}ms)`);
               res.setHeader('Retry-After', String(retryAfter));
               res.status(429).json({ error: 'Too many requests', retryAfter });
           }

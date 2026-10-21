@@ -7,7 +7,7 @@
  * - Auth middleware behavior
  * - routeMessage callback mechanics
  */
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import { createHmac } from 'crypto';
 import { MessengerChannel } from '../src/channels/messenger.js';
 import { LineChannel } from '../src/channels/line.js';
@@ -621,10 +621,10 @@ describe('Gateway E2E — /api/message lifecycle', () => {
         it('rejects malformed password bodies and byte-length mismatches while preserving Unicode login sessions', async () => {
             mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'password', password: 'é' } }));
             for (const password of ['a', {}, ['é']]) {
-                const response = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '127.0.0.77' }, body: JSON.stringify({ password }) });
+                const response = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
                 expect(response.status).toBe(401);
             }
-            const login = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '127.0.0.77' }, body: JSON.stringify({ password: 'é' }) });
+            const login = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'é' }) });
             expect(login.status).toBe(200);
             const body = await login.json() as { token: string };
             expect((await fetch(`${BASE}/api/config`, { headers: { Authorization: `Bearer ${body.token}` } })).status).toBe(200);
@@ -863,5 +863,56 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             expect(body.error).toMatch(/timed out/i);
             expect(r.headers.get('x-eval-suite')).toBe('safety');
         }, 15000);
+    });
+});
+
+describe('Gateway login rate-limit authority', () => {
+    const loginPort = TEST_PORT + 4;
+    const loginBase = `http://127.0.0.1:${loginPort}`;
+    const credential = 'synthetic-rate-boundary-token';
+
+    beforeEach(async () => {
+        vi.stubEnv('FB_APP_SECRET', ''); vi.stubEnv('FB_PAGE_ACCESS_TOKEN', ''); vi.stubEnv('FB_PAGE_ID', ''); vi.stubEnv('TWILIO_AUTH_TOKEN', '');
+        mockLoadConfig.mockReset();
+        mockLoadConfig.mockReturnValue(makeMockConfig({ port: loginPort, auth: { mode: 'token', token: credential } }));
+        mockRouteMessage.mockReset();
+        mockRouteMessage.mockResolvedValue(defaultRouteResponse());
+        await startGateway({ port: loginPort, host: '127.0.0.1', skipUsableCheck: true });
+    }, 30000);
+
+    afterEach(async () => {
+        await stopGateway();
+        vi.unstubAllEnvs();
+    });
+
+    it('keeps one login-attempt quota when the same peer forges forwarding headers', async () => {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            const response = await fetch(`${loginBase}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `198.51.100.${attempt + 1}`, Forwarded: `for=198.51.100.${attempt + 1}`, 'X-Real-IP': `198.51.100.${attempt + 1}` },
+                body: JSON.stringify({ password: 'incorrect fixture credential' }),
+            });
+            expect(response.status).toBe(attempt < 5 ? 401 : 429);
+            if (attempt === 5) expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+            await response.body?.cancel();
+        }
+        expect(mockRouteMessage).not.toHaveBeenCalled();
+    });
+
+    it('does not spend the login quota on authenticated message requests', async () => {
+        for (let request = 0; request < 6; request++) {
+            const response = await fetch(`${loginBase}/api/message`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
+                body: JSON.stringify({ content: 'isolated route quota fixture' }),
+            });
+            expect(response.status).toBe(200);
+            await response.json();
+        }
+        const login = await fetch(`${loginBase}/api/login`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: credential }),
+        });
+        expect(login.status).toBe(200);
+        expect((await login.json() as { token?: string }).token).toEqual(expect.any(String));
+        expect(mockRouteMessage).toHaveBeenCalledTimes(6);
     });
 });
