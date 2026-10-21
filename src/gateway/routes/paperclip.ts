@@ -21,6 +21,29 @@ import { titanEvents } from '../../agent/daemon.js';
 
 const COMPONENT = 'Gateway:Paperclip';
 const PAPERCLIP_PORT = 3100;
+const PRIVATE_OR_HOP_HEADERS = new Set([
+  'host', 'authorization', 'cookie', 'proxy-authorization', 'referer',
+  'x-original-url', 'x-original-uri', 'x-rewrite-url', 'x-forwarded-uri', 'x-forwarded-url',
+  'connection', 'proxy-connection', 'keep-alive', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade',
+]);
+
+/** The gateway credential authenticates TITAN only, not a sidecar or its redirect target. */
+function sidecarHeaders(req: Request): Headers {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value && !PRIVATE_OR_HOP_HEADERS.has(key.toLowerCase())) {
+      headers.set(key, Array.isArray(value) ? value[0] : value);
+    }
+  }
+  return headers;
+}
+
+function sidecarQuery(req: Request): string {
+  const query = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '');
+  query.delete('token');
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : '';
+}
 
 export function createPaperclipRouter(): Router {
   const router = Router();
@@ -70,18 +93,16 @@ export function createPaperclipRouter(): Router {
 
   router.all('/*', async (req: Request, res: Response) => {
     const targetPath = req.path.replace(/^\/api\/paperclip/, '/api');
-    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
+    const query = sidecarQuery(req);
     const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
 
     try {
-      const headers = new Headers();
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
-      }
+      const headers = sidecarHeaders(req);
 
       const upstream = await fetch(targetUrl, {
         method: req.method,
-        headers: headers as any,
+        redirect: 'error',
+        headers,
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
       });
 
@@ -105,18 +126,16 @@ export function createPaperclipUIRouter(): Router {
 
   router.all('/*', async (req: Request, res: Response) => {
     const targetPath = req.path.replace(/^\/paperclip/, '') || '/';
-    const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
+    const query = sidecarQuery(req);
     const targetUrl = `http://localhost:${PAPERCLIP_PORT}${targetPath}${query}`;
 
     try {
-      const headers = new Headers();
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (v && k.toLowerCase() !== 'host') headers.set(k, Array.isArray(v) ? v[0] : v);
-      }
+      const headers = sidecarHeaders(req);
 
       const upstream = await fetch(targetUrl, {
         method: req.method,
-        headers: headers as any,
+        redirect: 'error',
+        headers,
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
       });
 

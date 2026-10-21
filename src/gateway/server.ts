@@ -11,10 +11,11 @@ import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir, hostname as osHostname, cpus, loadavg, totalmem, freemem } from 'os';
 import { statfs } from 'fs/promises';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
 import { assertSecureNodeRuntime } from '../utils/nodeRuntime.js';
+import { createGatewayAuthBoundary, gatewayAuthConfigTransitionGuard, isGatewayAuthConfigured, isGatewayCorsOriginAllowed, isLocalGatewayRequestAllowed, resolveGatewayListenHost, safeCredentialEqual as safeCompare, verifyLineWebhookSignature } from './authBoundary.js';
 import { atomicWriteJsonFile } from '../utils/helpers.js';
 import type { ProviderConfig } from '../config/schema.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
@@ -144,15 +145,6 @@ const CP_SSE_EVENTS = [
     'commandpost:task:expired', 'commandpost:budget:warning', 'commandpost:budget:exceeded',
     'commandpost:agent:heartbeat', 'commandpost:agent:status',
 ];
-const ALLOWED_ORIGINS = [
-    /^https?:\/\/localhost(:\d+)?$/,
-    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-    /^https?:\/\/\[::1\](:\d+)?$/,
-    /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,      // LAN
-];
-function isAllowedOrigin(origin: string): boolean {
-    return ALLOWED_ORIGINS.some(re => re.test(origin));
-}
 
 /**
  * Classify a chat error into a structured response that the React UI can render
@@ -515,16 +507,11 @@ tokenCleanupInterval = setInterval(() => {
 }, 600_000);
 tokenCleanupInterval.unref();
 
-/** Constant-time string comparison to prevent timing attacks */
-function safeCompare(a: string, b: string): boolean {
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
-
 /** Check if a request token is valid */
 function isValidToken(token: string | undefined, config: ReturnType<typeof loadConfig>): boolean {
   const auth = config.gateway.auth;
-  if (!auth || auth.mode === 'none') return true;
+  if (auth?.mode === 'none') return true;
+  if (!auth || !isGatewayAuthConfigured(config)) return false;
   if (!token) return false;
   // S2: If token mode but no token configured, log warning and deny (don't silently allow)
   if (auth.mode === 'token') {
@@ -815,9 +802,9 @@ async function handleInboundMessage(msg: InboundMessage): Promise<void> {
 export async function startGateway(options?: { port?: number; host?: string; verbose?: boolean; rateLimitMax?: number; rateLimitWindowMs?: number; skipUsableCheck?: boolean }): Promise<void> {
   assertSecureNodeRuntime();
   const config = loadConfig();
-  initFileLogger(TITAN_LOGS_DIR);
   const port = options?.port || config.gateway.port;
-  let host = options?.host || config.gateway.host;
+  const host = resolveGatewayListenHost(config, options?.host);
+  initFileLogger(TITAN_LOGS_DIR);
 
   // Hunt Finding #29 (2026-04-14): install a bounded global HTTP dispatcher
   // BEFORE any fetch() calls are made. Without this, each parallel Ollama
@@ -1101,9 +1088,51 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   // Create Express app
   const app = express();
 
-  // ── Serve React SPA static assets FIRST ───────────────────
-  // Static files (JS, CSS, images) should bypass JSON parsing,
-  // request logging, and auth middleware for efficiency.
+  // Security headers + CSP
+  app.use((req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+      res.setHeader('X-XSS-Protection', '1; mode=block');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.setHeader('Content-Security-Policy', [
+          "default-src 'self'",
+          // Sandbox widget iframes use new Function() for code evaluation.
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "style-src 'self' 'unsafe-inline'",
+          "connect-src 'self' ws: wss: https: http:",
+          "media-src 'self' blob: mediastream:",
+          "img-src 'self' data: blob:",
+          "font-src 'self' data:",
+          // Canvas AI-generated widgets run in a sandboxed iframe whose
+          // source is a blob: URL built by ui/src/titan2/sandbox/SandboxRuntime.
+          // Without `frame-src blob:` the browser shows:
+          //   "This content is blocked. Contact the site owner to fix the issue."
+          // worker-src + child-src are included as safety fallbacks for
+          // older engines that don't honor frame-src directly.
+          "frame-src 'self' blob: data:",
+          "child-src 'self' blob: data:",
+          "worker-src 'self' blob:",
+      ].join('; '));
+      res.removeHeader('X-Powered-By');
+      next();
+  });
+
+  // CORS is response metadata, never authentication. OPTIONS terminates in the auth boundary.
+  app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (origin && isGatewayCorsOriginAllowed(origin, loadConfig(), port, host)) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+          res.vary('Origin');
+      }
+      next();
+  });
+
+  app.use(createGatewayAuthBoundary({ loadConfig, isValidToken, port, host }));
+
+  // Public SPA assets bypass JSON parsing and request logging; protected namespaces never bypass auth.
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const uiDistPath = join(__dirname, '../../ui/dist');
@@ -1122,7 +1151,13 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
   }
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '1mb', verify: (req, _res, bytes) => {
+    // Preserve exact signed bytes before JSON parsing; never reserialize a webhook payload for HMAC.
+    const path = (req.url || '').split('?')[0].replace(/\/$/, '').toLowerCase();
+    if (['/api/messenger/webhook', '/messenger/webhook', '/api/channels/line/webhook'].includes(path)) {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(bytes);
+    }
+  } }));
 
   // Request logging middleware (skips static assets served above)
   app.use((req, res, next) => {
@@ -1134,30 +1169,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     next();
   });
 
-  // OpenAI API compatibility layer (/v1/models, /v1/chat/completions, /v1/embeddings)
-  // v6.5 P5 — auth gate. The /api auth middleware (below) is path-scoped to
-  // /api, so without this guard /v1 was reachable with ZERO authentication even
-  // when auth.mode='token'/'password' was configured — anyone who could reach
-  // the port could burn the operator's provider keys via /v1/chat/completions
-  // and enumerate coverage via /v1/models. Mirror the /api token check here.
-  // When auth is unconfigured (mode 'none', or 'token' with no token set) /v1
-  // stays open, preserving the local-dev experience.
-  app.use('/v1', (req, res, next) => {
-    const cfg = loadConfig();
-    const auth = cfg.gateway.auth;
-    if (!auth || auth.mode === 'none') { next(); return; }
-    if (auth.mode === 'token' && !auth.token) { next(); return; }
-    const header = req.headers.authorization;
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
-    if (isValidToken(token, cfg)) { next(); return; }
-    res.status(401).json({
-      error: {
-        message: 'Unauthorized. /v1 requires the TITAN gateway token as the Bearer credential when auth is enabled.',
-        type: 'invalid_request_error',
-        code: 'unauthorized',
-      },
-    });
-  });
+  // All gateway operations and proxies share the auth boundary mounted above.
   app.use('/v1', createOpenAICompatRouter());
 
   // ── Paperclip sidecar management & proxy ───────────────────
@@ -1219,66 +1231,6 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     next(err);
   });
 
-  // Security headers + CSP
-  app.use((req, res, next) => {
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-      res.setHeader('X-XSS-Protection', '1; mode=block');
-      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-      res.setHeader('Content-Security-Policy', [
-          "default-src 'self'",
-          // Sandbox widget iframes use new Function() for code evaluation.
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-          "style-src 'self' 'unsafe-inline'",
-          "connect-src 'self' ws: wss: https: http:",
-          "media-src 'self' blob: mediastream:",
-          "img-src 'self' data: blob:",
-          "font-src 'self' data:",
-          // Canvas AI-generated widgets run in a sandboxed iframe whose
-          // source is a blob: URL built by ui/src/titan2/sandbox/SandboxRuntime.
-          // Without `frame-src blob:` the browser shows:
-          //   "This content is blocked. Contact the site owner to fix the issue."
-          // worker-src + child-src are included as safety fallbacks for
-          // older engines that don't honor frame-src directly.
-          "frame-src 'self' blob: data:",
-          "child-src 'self' blob: data:",
-          "worker-src 'self' blob:",
-      ].join('; '));
-      res.removeHeader('X-Powered-By');
-      next();
-  });
-
-  // CORS — allow localhost, Tailscale, Cloudflare tunnels, and LAN origins
-  const gatewayPort = config.gateway.port || 48420;
-  const localhostOrigins = new Set([
-      `http://127.0.0.1:${gatewayPort}`,
-      `http://localhost:${gatewayPort}`,
-      `https://127.0.0.1:${gatewayPort}`,
-      `https://localhost:${gatewayPort}`,
-  ]);
-  const dynamicOriginPatterns = [
-      /^https?:\/\/[a-z0-9-]+\.ts\.net(:\d+)?$/,          // Tailscale (*.ts.net)
-      /^https?:\/\/[a-z0-9-]+\.trycloudflare\.com(:\d+)?$/, // Cloudflare tunnel
-      /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,     // LAN 192.168.x.x
-      /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,  // LAN 10.x.x.x
-      /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/, // LAN 172.16-31.x.x
-  ];
-  function isAllowedOrigin(origin: string): boolean {
-      if (localhostOrigins.has(origin)) return true;
-      return dynamicOriginPatterns.some(re => re.test(origin));
-  }
-  app.use((req, res, next) => {
-      const origin = req.headers.origin;
-      if (origin && isAllowedOrigin(origin)) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Access-Control-Allow-Credentials', 'true');
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      }
-      if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
-      next();
-  });
-
   // ── Login routes (no auth required) ──────────────────────────
   app.get('/login', (_req, res) => {
     res.setHeader('Content-Type', 'text/html');
@@ -1288,11 +1240,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   app.post('/api/login', rateLimit(60000, 5), (req, res) => {
     const cfg = loadConfig();
     const auth = cfg.gateway.auth;
-    if (!auth || auth.mode === 'none') {
+    if (auth?.mode === 'none') {
       res.json({ token: 'noauth' });
       return;
     }
-    const { password } = req.body as { password?: string };
+    if (!auth || !isGatewayAuthConfigured(cfg)) { res.status(401).json({ error: 'Gateway authentication is not configured' }); return; }
+    const password = (req.body as { password?: unknown } | undefined)?.password;
     let valid = false;
     if (auth.mode === 'password' && auth.password && password && safeCompare(password, auth.password)) valid = true;
     if (auth.mode === 'token' && auth.token && password && safeCompare(password, auth.token)) valid = true;
@@ -1303,35 +1256,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     res.json({ token });
   });
 
-  // ── Prometheus /metrics (no auth — standard scrape path) ────
+  // ── Prometheus /metrics (gateway authentication applies) ────
   app.get('/metrics', (_req, res) => {
     res.setHeader('Content-Type', 'text/plain; version=0.0.4');
     res.send(serializePrometheus());
-  });
-
-  // ── Auth middleware (API routes only) ────────────────────────
-  // HTML pages (/ and /login) are always served — the JS handles
-  // the redirect to /login if localStorage has no token.
-  // Only /api/* routes require a valid token.
-  app.use('/api', (req, res, next) => {
-    const cfg = loadConfig();
-    const auth = cfg.gateway.auth;
-    if (!auth || auth.mode === 'none') { next(); return; }
-    // Token mode with no token configured = auth not set up, allow access
-    if (auth.mode === 'token' && !auth.token) { next(); return; }
-    // Skip public endpoints (login, messenger webhook, twilio webhooks)
-    if (req.path === '/login') { next(); return; }
-    if (req.path === '/messenger/webhook') { next(); return; }
-    if (req.path.startsWith('/twilio/')) { next(); return; }
-    if (req.path === '/telephony/dograh/inbound') { next(); return; }
-    // v6.5 — LINE & Lark inbound webhooks come from external platforms without
-    // TITAN's token; they authenticate via their own platform signature/challenge.
-    if (req.path === '/channels/line/webhook') { next(); return; }
-    if (req.path === '/channels/lark/webhook') { next(); return; }
-    const header = req.headers.authorization;
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
-    if (isValidToken(token, cfg)) { next(); return; }
-    res.status(401).json({ error: 'Unauthorized' });
   });
 
   // ── Command Post availability guard ──────────────────────────
@@ -3436,7 +3364,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
   });
 
-  app.post('/api/config', async (req, res) => {
+  app.post('/api/config', gatewayAuthConfigTransitionGuard(host), async (req, res) => {
     try {
       const body = req.body as Record<string, unknown>;
       const cfg = loadConfig();
@@ -4269,9 +4197,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Prevent cross-origin WebSocket hijacking from malicious web pages
     const origin = req.headers.origin;
     if (origin) {
-      const wsAllowlist = (cfg.gateway as Record<string, unknown>).wsOriginAllowlist as string[] | undefined;
-      const customPatterns = (wsAllowlist || []).map(o => new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
-      const allowed = isAllowedOrigin(origin) || customPatterns.some(p => p.test(origin));
+      const allowed = isGatewayCorsOriginAllowed(origin, cfg, port, host);
       if (!allowed) {
         logger.warn(COMPONENT, `WebSocket origin rejected: ${origin} (not in allowlist)`);
         ws.close(1008, 'Origin not allowed');
@@ -4281,7 +4207,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
 
     // ── Regular dashboard WebSocket connections ──────
     const auth = cfg.gateway.auth;
-    if (auth && auth.mode !== 'none') {
+    if (!isGatewayAuthConfigured(cfg) || (auth?.mode === 'none' && !isLocalGatewayRequestAllowed({
+      host: req.headers.host, origin: req.headers.origin, 'sec-fetch-site': typeof req.headers['sec-fetch-site'] === 'string' ? req.headers['sec-fetch-site'] : undefined,
+    }, cfg, port, host))) { ws.close(1008, 'Unauthorized'); return; }
+    if (auth?.mode !== 'none') {
       const token = url.searchParams.get('token') || '';
       if (!isValidToken(token, cfg)) {
         ws.close(1008, 'Unauthorized');
@@ -4435,14 +4364,12 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; },
     });
 
-    // Mirrors the Twilio voice-webhook pattern: skip-with-warn when no app secret
-    // is configured (dev), enforce + reject when it is.
     const checkMessengerSignature = (req: express.Request): boolean => {
-      const raw = (req as express.Request & { rawBody?: Buffer }).rawBody
-        ?? Buffer.from(JSON.stringify(req.body ?? {}));
+      const raw = (req as express.Request & { rawBody?: Buffer }).rawBody;
+      if (!raw) return false;
       const result = messengerAdapter.verifySignature(raw, req.get('x-hub-signature-256') || undefined);
       if (result.reason === 'no-secret') {
-        logger.warn(COMPONENT, 'Messenger FB_APP_SECRET not configured — webhook signature check SKIPPED (set FB_APP_SECRET to lock down)');
+        logger.warn(COMPONENT, 'Messenger webhook denied: FB_APP_SECRET is not configured');
       }
       return result.ok;
     };
@@ -4473,7 +4400,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     });
     app.post('/messenger/webhook', messengerJson, handleMessengerPost);
 
-    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (verify token: ${messengerAdapter.getVerifyToken()}, signature enforcement: ${messengerAdapter.hasAppSecret() ? 'ON' : 'OFF — set FB_APP_SECRET'})`);
+    logger.info(COMPONENT, `Messenger webhook: /api/messenger/webhook + /messenger/webhook (signature enforcement: ${messengerAdapter.hasAppSecret() ? 'ON' : 'DENY — set FB_APP_SECRET'})`);
   }
 
   // ── LINE & Lark inbound webhooks (v6.5) ──────────────────────
@@ -4483,6 +4410,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   const lineAdapter = channels.get('line') as LineChannel | undefined;
   if (lineAdapter) {
     app.post('/api/channels/line/webhook', express.json(), (req, res) => {
+      const secret = loadConfig().channels.line?.apiKey;
+      if (!verifyLineWebhookSignature((req as express.Request & { rawBody?: Buffer }).rawBody, req.get('x-line-signature'), secret)) {
+        res.status(403).json({ error: 'line_webhook_signature_required' }); return;
+      }
       try { lineAdapter.handleWebhookEvent(req.body || {}); }
       catch (e) { logger.error(COMPONENT, `LINE webhook error: ${(e as Error).message}`); }
       res.status(200).end();
@@ -4491,14 +4422,10 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   }
   const larkAdapter = channels.get('lark') as LarkChannel | undefined;
   if (larkAdapter) {
-    app.post('/api/channels/lark/webhook', express.json(), (req, res) => {
-      try {
-        const result = larkAdapter.handleWebhookEvent(req.body || {});
-        if (result?.challenge) { res.json({ challenge: result.challenge }); return; }
-      } catch (e) { logger.error(COMPONENT, `Lark webhook error: ${(e as Error).message}`); }
-      res.status(200).end();
+    app.post('/api/channels/lark/webhook', (_req, res) => {
+      res.status(503).set('Cache-Control', 'no-store').json({ error: 'lark_webhook_security_hold' });
     });
-    logger.info(COMPONENT, 'Lark webhook: POST /api/channels/lark/webhook');
+    logger.info(COMPONENT, 'Lark inbound webhook is on security hold pending reviewed event-signature configuration');
   }
 
   // ── Kill-switch control plane (v6.5) ─────────────────────────
@@ -4581,10 +4508,8 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     const checkTwilioAuth = (req: express.Request): boolean => {
       const { authToken } = getTwilioConfig();
       if (!authToken) {
-        // If authToken isn't configured, skip validation (dev mode). Logged
-        // once per request so the operator knows to lock it down.
-        logger.warn(COMPONENT, 'Twilio authToken not configured — signature check SKIPPED');
-        return true;
+        logger.warn(COMPONENT, 'Twilio webhook denied: authToken is not configured');
+        return false;
       }
       const signature = (req.headers['x-twilio-signature'] as string) || '';
       const url = computeSignedUrl(req);
@@ -4867,6 +4792,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // ── POST /api/twilio/status-callback — call lifecycle events ──
     app.post('/api/twilio/status-callback', urlEncoded, (req, res) => {
       try {
+        if (!checkTwilioAuth(req)) { res.status(403).send('forbidden'); return; }
         const callSid = (req.body?.CallSid as string) || '';
         const status = (req.body?.CallStatus as string) || '';
         const duration = (req.body?.CallDuration as string) || '';
@@ -4885,7 +4811,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     // Unauthenticated on purpose: Twilio fetches these and passing a
     // bearer token through <Play> URLs is fiddly + leaks in logs.
     // Tokens are random 96-bit + 5-min TTL + garbage-collected, so the
-    // exposure is a transient MP3 of synthesized speech (not secrets).
+    // capability is short-lived; synthesized audio can still contain private speech.
     app.get('/api/twilio/audio/:token', async (req, res) => {
       const token = req.params.token;
       const audio = await readCachedAudio(token);
@@ -5319,11 +5245,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
       peerStaleTimeoutMs: config.mesh.peerStaleTimeoutMs,
     });
 
-    // Auto-bind to 0.0.0.0 when mesh is enabled (so peers can reach us)
-    if (host === '127.0.0.1') {
-      host = '0.0.0.0';
-      logger.info(COMPONENT, 'Mesh enabled — binding to 0.0.0.0 (was 127.0.0.1) so peers can connect');
-    }
+    // The effective mesh listener was resolved and authenticated before initialization.
 
     // Connect to static peers
     if (config.mesh.staticPeers.length > 0) {

@@ -42,6 +42,14 @@ and does not add authentication. Requests with a browser `Origin` are rejected;
 use stdio or a local machine client. JSON request bodies are limited to 1 MiB;
 larger requests return HTTP 413 before any tool call reaches the gateway.
 
+This example does not send a gateway bearer token upstream. It is limited to an
+explicitly configured loopback gateway with `gateway.auth.mode: "none"`; it cannot
+reach an authenticated gateway, and an unset token is no longer an anonymous
+development exception. For authenticated clients, use TITAN's built-in `/mcp`
+endpoint with the gateway credential, or native `titan mcp` stdio as appropriate.
+Do not forward ambient owner credentials into this anonymous HTTP example. See
+[gateway authentication and first-run setup](../../docs/gateway-authentication.md).
+
 Run `npm test` and `npm run typecheck` to check the local transport fixtures.
 
 ## Configuring MCP Clients

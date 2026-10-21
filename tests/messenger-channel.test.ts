@@ -433,12 +433,10 @@ describe('MessengerChannel', () => {
         expect(ch.verifySignature(raw, 'garbage')).toMatchObject({ ok: false, reason: 'malformed-signature' });
     });
 
-    it('SKIPS verification (dev mode) when no app secret is configured — backward compatible', async () => {
+    it('REJECTS webhook POSTs when no app secret is configured', async () => {
         const ch = await connectedWithSecret(undefined); // no FB_APP_SECRET
         expect(ch.hasAppSecret()).toBe(false);
-        // Without a secret, anything passes (route logs a warn) so existing
-        // unsigned dev setups keep working until FB_APP_SECRET is set.
-        expect(ch.verifySignature(JSON.stringify(webhookBody('x')), undefined)).toEqual({ ok: true, reason: 'no-secret' });
+        expect(ch.verifySignature(JSON.stringify(webhookBody('x')), undefined)).toEqual({ ok: false, reason: 'no-secret' });
     });
 
     // ── handleWebhook(): guards ──────────────────────────────────────────────

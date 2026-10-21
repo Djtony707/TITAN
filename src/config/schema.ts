@@ -165,6 +165,11 @@ export const GatewayConfigSchema = z.object({
     host: z.string().default(DEFAULT_GATEWAY_HOST),
     port: z.number().default(DEFAULT_GATEWAY_PORT),
     webPort: z.number().default(DEFAULT_WEB_PORT),
+    /** Exact HTTP(S) browser origins; local no-auth mode never trusts wildcard host patterns. */
+    originAllowlist: z.array(z.string().max(2048).url().refine(value => {
+        try { const url = new URL(value); return !value.includes('*') && ['http:', 'https:'].includes(url.protocol) && url.origin === value; }
+        catch { return false; }
+    }, 'Use an exact HTTP(S) origin without path, credentials or wildcards')).max(64).default([]),
     auth: z.object({
         mode: z.enum(['none', 'token', 'password']).default('token'),
         token: z.string().optional(),
