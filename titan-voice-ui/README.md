@@ -1,3 +1,13 @@
+# Legacy standalone voice UI — security hold
+
+This standalone starter is retired from the active TITAN voice stack. Its unauthenticated token issuer is disabled: `POST /api/token` always returns HTTP 503, in development and production, before reading LiveKit credentials or invoking the signing SDK. Supplying private credentials does not enable this endpoint.
+
+`setup.sh` intentionally exits before modifying `.env.local`, cloning source, installing packages or generating credentials. Use the authenticated TITAN gateway voice interface and the [private LiveKit stack instructions](../titan-voice-agent/README.md). Main gateway, local F5 and local-model routes are outside this hold.
+
+Re-enabling this standalone UI requires a reviewed authenticated integration with scoped gateway token issuance. The upstream starter documentation retained below is historical reference, not a supported deployment path.
+
+---
+
 # Agent Starter for React
 
 This is a starter template for [LiveKit Agents](https://docs.livekit.io/agents) that provides a simple voice interface using [Agents UI](https://livekit.io/ui) components and [LiveKit JavaScript SDK](https://github.com/livekit/client-sdk-js). It supports [voice](https://docs.livekit.io/agents/start/voice-ai), [transcriptions](https://docs.livekit.io/agents/build/text/), and [virtual avatars](https://docs.livekit.io/agents/integrations/avatar).
