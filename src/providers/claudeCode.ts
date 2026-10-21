@@ -5,8 +5,8 @@
  * via `providerOptions.allowClaudeCode: true` on every call — autonomous
  * paths are blocked by design to prevent runaway CLI spend.
  */
-import { existsSync } from 'fs';
-import { spawn, spawnSync } from 'child_process';
+import { accessSync, constants, statSync } from 'fs';
+import { spawn } from 'child_process';
 import { LLMProvider, type ChatOptions, type ChatResponse, type ChatStreamChunk } from './base.js';
 import { isClaudeCodeAllowed } from './base.js';
 import logger from '../utils/logger.js';
@@ -17,14 +17,13 @@ function findClaudeBinary(): string | null {
     const pathDirs = (process.env.PATH || '').split(':');
     for (const dir of pathDirs) {
         const p = `${dir}/claude`;
-        if (existsSync(p)) {
-            // Discovery checks installation metadata only. A prompt here would
-            // dispatch inference before chat's explicit user-opt-in gate.
-            const probe = spawnSync(p, ['--version'], { timeout: 3000, encoding: 'utf-8' });
-            if (probe.status === 0) {
-                return p;
-            }
-        }
+        try {
+            // stat follows symlinks; directories and non-executable targets are
+            // unavailable. Discovery must never start the CLI, even for metadata.
+            if (!statSync(p).isFile()) continue;
+            accessSync(p, constants.X_OK);
+            return p;
+        } catch { /* Missing, inaccessible or broken symlink: try the next PATH entry. */ }
     }
     return null;
 }

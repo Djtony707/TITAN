@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
 import { beforeEach, afterEach, vi } from 'vitest';
@@ -20,7 +20,6 @@ const args = process.argv.slice(2);
 let input = '';
 if (cli === 'codex') for await (const chunk of process.stdin) input += chunk;
 appendFileSync(process.env.TITAN_CLI_FIXTURE_RECORD, JSON.stringify({ cli, args, input, apiUrl: process.env.TITAN_API_URL, runId: process.env.TITAN_RUN_ID, issueId: process.env.TITAN_ISSUE_ID }) + '\\n');
-if (cli === 'claude' && args.length === 1 && args[0] === '--version') { console.log('1.0.0 (synthetic fixture)'); process.exit(0); }
 if (process.env.TITAN_CLI_FIXTURE_MODE === 'timeout') { setInterval(() => {}, 1000); }
 else if (process.env.TITAN_CLI_FIXTURE_MODE === 'error') { console.error('synthetic-cli-error'); process.exitCode = 7; }
 else if (cli === 'codex') console.log(JSON.stringify({ result: 'synthetic-codex-result' }));
@@ -37,7 +36,8 @@ else console.log('synthetic-claude-result');
         rmSync(directory, { recursive: true, force: true });
     });
     return {
+        directory: () => directory,
         mode: (value: 'success' | 'error' | 'timeout') => vi.stubEnv('TITAN_CLI_FIXTURE_MODE', value),
-        invocations: (): Invocation[] => readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line)),
+        invocations: (): Invocation[] => existsSync(record) ? readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [],
     };
 }

@@ -178,7 +178,7 @@ describe('discoverAllModels', () => {
         const models = await discoverAllModels(true);
         expect(Array.isArray(models)).toBe(true);
         expect(models.length).toBeGreaterThan(0);
-        expect(cliFixture.invocations().every(call => call.cli === 'claude' && JSON.stringify(call.args) === '["--version"]')).toBe(true);
+        expect(cliFixture.invocations()).toEqual([]);
     });
 
     it('each model should have required fields', async () => {

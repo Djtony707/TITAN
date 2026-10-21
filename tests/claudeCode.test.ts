@@ -5,7 +5,15 @@
  * Tests the provider shape, model alias resolution, and healthCheck
  * fall-through when the binary is missing.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { spawn, spawnSync } from 'child_process';
+import { chmodSync, mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
+
+vi.mock('child_process', () => ({
+    spawn: vi.fn(() => { throw new Error('Unexpected executable start in discovery/gate test'); }),
+    spawnSync: vi.fn(() => { throw new Error('Unexpected executable start in discovery/gate test'); }),
+}));
 
 vi.mock('../src/utils/logger.js', () => ({
     default: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -16,6 +24,7 @@ import { isClaudeCodeAllowed, type ChatOptions } from '../src/providers/base.js'
 import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
 
 const cliFixture = useExternalCliFixture();
+beforeEach(() => vi.clearAllMocks());
 
 describe('ClaudeCodeProvider', () => {
     const provider = new ClaudeCodeProvider();
@@ -44,9 +53,36 @@ describe('ClaudeCodeProvider', () => {
         expect(healthy).toBe(false);
     });
 
-    it('healthCheck probes metadata only and never sends an inference prompt', async () => {
+    it('healthCheck checks executable presence without starting any executable', async () => {
         expect(await provider.healthCheck()).toBe(true);
-        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--version']]);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(spawnSync).not.toHaveBeenCalled();
+        expect(cliFixture.invocations()).toEqual([]);
+    });
+
+    it('healthCheck rejects a non-executable file or a directory', async () => {
+        const candidate = join(cliFixture.directory(), 'claude');
+        vi.stubEnv('PATH', cliFixture.directory());
+        chmodSync(candidate, 0o644);
+        expect(await provider.healthCheck()).toBe(false);
+        rmSync(candidate);
+        mkdirSync(candidate);
+        expect(await provider.healthCheck()).toBe(false);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(spawnSync).not.toHaveBeenCalled();
+    });
+
+    it('healthCheck resolves an executable file symlink and rejects a broken symlink', async () => {
+        const candidate = join(cliFixture.directory(), 'claude');
+        const target = join(cliFixture.directory(), 'cli-target');
+        vi.stubEnv('PATH', cliFixture.directory());
+        renameSync(candidate, target);
+        symlinkSync(target, candidate);
+        expect(await provider.healthCheck()).toBe(true);
+        rmSync(target);
+        expect(await provider.healthCheck()).toBe(false);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(spawnSync).not.toHaveBeenCalled();
     });
 });
 
@@ -108,7 +144,9 @@ describe('Claude Code gate — spawnStream rejects without the flag', () => {
         await expect(
             provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
         ).rejects.toThrow(/Claude Code blocked for autonomous use/);
-        expect(() => cliFixture.invocations()).toThrow(); // no executable was started
+        expect(cliFixture.invocations()).toEqual([]);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(spawnSync).not.toHaveBeenCalled();
     });
 
     it('throws with the new providerOptions guidance in the error message', async () => {

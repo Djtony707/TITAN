@@ -162,7 +162,7 @@ describe('Claude Code Adapter', () => {
         const result = await adapter.execute(ctx);
         expect(result.success).toBe(true);
         expect(result.content).toBe('synthetic-claude-result');
-        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--version'], ['--print', 'echo test']]);
+        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--print', 'echo test']]);
     });
 });
 

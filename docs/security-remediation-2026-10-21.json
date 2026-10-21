@@ -6,13 +6,6 @@
   "worktree": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security",
   "branch": "codex/titan-security-2026-10-21",
   "baseCommit": "63d0a7438192e9216faa39457124574ab53e6ecb",
-  "codeCommits": [
-    "e5bb94a9",
-    "9112954c",
-    "1f3edbab",
-    "d01a60cd",
-    "8738318f"
-  ],
   "releaseReady": false,
   "githubSnapshot": {
     "dependabotOpen": {
@@ -130,12 +123,14 @@
         "--print",
         "hello"
       ],
-      "after": [
-        "--version"
-      ],
+      "after": {
+        "operation": "statSync(candidate).isFile() plus accessSync(candidate, X_OK)",
+        "startsExecutable": false,
+        "meaning": "installation presence only; not authentication or inference readiness"
+      },
       "explicitChatOptInPreserved": true,
       "realCliUnitTestsReplaced": true,
-      "manualIntegrationGate": "environment authorization and explicit CLI flag plus named provider required"
+      "manualIntegrationGate": "Codex only; environment authorization and explicit CLI flag plus provider=codex required; Claude rejected"
     }
   },
   "secrets": {
@@ -180,18 +175,18 @@
     },
     "targetedConfigAndCliTests": {
       "filesPassed": 6,
-      "casesPassed": 95
+      "casesPassed": 97
     },
     "fullSuite": {
       "status": "passed",
       "exitCode": 0,
       "filesPassed": 415,
       "filesTotal": 415,
-      "casesPassed": 8699,
+      "casesPassed": 8701,
       "casesSkipped": 9,
-      "casesTotal": 8708,
-      "durationSeconds": 87.33,
-      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-isolated.log"
+      "casesTotal": 8710,
+      "durationSeconds": 101.45,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-presence-final.log"
     },
     "baselineComparison": {
       "configFailureReproducedOnOriginalMainLock": true,
@@ -209,7 +204,16 @@
       "status": "unavailable",
       "reason": "No TITAN index in available service"
     },
-    "remainingOwnedMetaVrProcesses": 0
+    "remainingOwnedMetaVrProcesses": 0,
+    "discoveryPresenceChecks": {
+      "childProcessStarts": 0,
+      "regularExecutable": true,
+      "nonExecutableRejected": true,
+      "directoryRejected": true,
+      "executableSymlink": true,
+      "brokenSymlinkRejected": true,
+      "autonomousChatDeniedWithoutExecution": true
+    }
   },
   "releaseBlockers": [
     "Unpatched high advisory in active voice development lint tooling",
@@ -220,5 +224,12 @@
   "publicationRule": {
     "source": "/Users/michaelelliott/dev/TitanBot/TITAN-main/AGENTS.md:11",
     "instruction": "No GitHub push, no npm publish, no @next tag without Tony's GO."
-  }
+  },
+  "priorCodeCommits": [
+    "e5bb94a9",
+    "9112954c",
+    "1f3edbab",
+    "d01a60cd",
+    "8738318f"
+  ]
 }
