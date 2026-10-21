@@ -1,19 +1,45 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'fs';
-import { tmpdir } from 'os';
+import { lstatSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 let home: string;
 let workspace: string;
 let outside: string;
-let server: Server;
+let server: Server | undefined;
 let baseUrl: string;
 
+function createFixtureHome(): string {
+    // /tmp is deliberately readable by the production preview policy. Linux's
+    // os.tmpdir() therefore cannot represent a path outside that policy.
+    const parent = realpathSync('/var/tmp');
+    const uid = process.getuid?.();
+    const parentStat = lstatSync(parent);
+    if (uid === undefined || !parentStat.isDirectory() || parentStat.isSymbolicLink()
+        || (parentStat.uid !== 0 && parentStat.uid !== uid)
+        || ((parentStat.mode & 0o022) !== 0 && (parentStat.mode & 0o1000) === 0)) {
+        throw new Error('File boundary fixtures require a trusted POSIX scratch parent');
+    }
+    const readableRoots = ['/tmp', '/home/dj/titan-saas', '/home/dj/scripts']
+        .flatMap(root => existsSync(root) ? [root, realpathSync(root)] : [root]);
+    if (readableRoots.some(root => parent === root || parent.startsWith(root + '/'))) {
+        throw new Error('File boundary fixture parent must be outside preview policy roots');
+    }
+    const directory = mkdtempSync(join(parent, 'titan-file-boundary-'));
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid
+        || (stat.mode & 0o777) !== 0o700 || realpathSync(directory) !== directory) {
+        throw new Error('File boundary fixture must be a canonical private owned directory');
+    }
+    return directory;
+}
+
 beforeEach(async () => {
+    server = undefined;
+    home = '';
     vi.resetModules();
-    home = realpathSync(mkdtempSync(join(tmpdir(), 'titan-file-boundary-')));
+    home = createFixtureHome();
     workspace = join(home, 'workspace');
     outside = join(home, 'outside');
     for (const dir of [workspace, outside, join(home, '.titan', 'uploads')]) mkdirSync(dir, { recursive: true });
@@ -28,12 +54,15 @@ beforeEach(async () => {
     app.use(express.raw({ type: 'application/octet-stream', limit: '2mb' }));
     app.use('/api/files', createFilesRouter());
     await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', resolve); });
-    baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/files`;
+    baseUrl = `http://127.0.0.1:${(server!.address() as { port: number }).port}/api/files`;
 });
 afterEach(async () => {
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    rmSync(home, { recursive: true, force: true });
+    const activeServer = server;
+    if (activeServer?.listening) {
+        activeServer.closeAllConnections();
+        await new Promise<void>(resolve => activeServer.close(() => resolve()));
+    }
+    if (home) rmSync(home, { recursive: true, force: true });
 });
 
 function upload(session: string, name = 'fixture.txt') {
@@ -99,6 +128,19 @@ describe('authenticated file router confines paths', () => {
         expect(big.content.length).toBe(1024 * 1024);
         writeFileSync(join(workspace, 'binary.bin'), Buffer.from([0, 1, 2]));
         expect((await (await content(join(workspace, 'binary.bin'))).json()).encoding).toBe('binary');
+    });
+
+    it('preserves the existing /tmp preview allowance independently of the restricted fixture', async () => {
+        // Keep the lexical /tmp prefix on macOS too: this exercises the same
+        // policy path that made the original Linux fixture incorrectly return 200.
+        const allowedScratch = mkdtempSync('/tmp/titan-preview-policy-');
+        try {
+            const allowedFile = join(allowedScratch, 'preview.txt');
+            writeFileSync(allowedFile, 'allowed temporary fixture');
+            const response = await fetch(`${baseUrl}/content?path=${encodeURIComponent(allowedFile)}`);
+            expect(response.status).toBe(200);
+            expect((await response.json()).content).toBe('allowed temporary fixture');
+        } finally { rmSync(allowedScratch, { recursive: true, force: true }); }
     });
 
     it('rejects symlink leaves for file reads and writes', async () => {
