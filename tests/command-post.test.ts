@@ -16,6 +16,15 @@ vi.mock('../src/agent/daemon.js', () => {
     return { titanEvents: ee };
 });
 
+vi.mock('../src/agent/selfModStaging.js', () => ({
+    applyStagedPR: vi.fn(async (goalId: string) => ({
+        applied: [], bundle: null, blockedBySecurityHold: true,
+        failed: [{ path: goalId, error: 'Runtime self-mod apply is disabled by a security hold.' }],
+    })),
+}));
+
+vi.mock('../src/memory/episodic.js', () => ({ recordEpisode: vi.fn() }));
+
 vi.mock('../src/agent/goals.js', () => ({
     listGoals: vi.fn(() => [
         { id: 'g1', title: 'Mission Alpha', status: 'active', progress: 50, subtasks: [], parentGoalId: undefined },
@@ -79,6 +88,24 @@ describe('Command Post', () => {
 
     afterEach(() => {
         shutdownCommandPost();
+    });
+
+    it('records self-mod approval as held without reporting a merge or completed goal', async () => {
+        const { recordEpisode } = await import('../src/memory/episodic.js');
+        vi.mocked(recordEpisode).mockClear();
+        const approval = createApproval({
+            type: 'custom', requestedBy: 'fixture',
+            payload: { kind: 'self_mod_pr', goalId: 'held-candidate' },
+        });
+        const result = await approveApproval(approval.id, 'human-fixture');
+        expect(result?.status).toBe('approved'); // records the decision, not application
+        await vi.waitFor(() => expect(recordEpisode).toHaveBeenCalledWith(expect.objectContaining({
+            kind: 'self_mod_pr_rejected', tags: ['self-mod', 'pr-security-hold', 'held-candidate'],
+        })));
+        expect(vi.mocked(recordEpisode).mock.calls.some(([episode]) => episode.kind === 'self_mod_pr_merged')).toBe(false);
+        const activity = getActivity().filter(item => item.metadata?.approvalId === approval.id);
+        expect(activity.some(item => item.type === 'error' && item.metadata?.blockedBySecurityHold === true)).toBe(true);
+        expect(activity.some(item => item.type === 'goal_completed')).toBe(false);
     });
 
     // ── Telephony Approval Safety ─────────────────────────────

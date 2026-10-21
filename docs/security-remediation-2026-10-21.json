@@ -1,0 +1,1661 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-21",
+  "repository": "Djtony707/TITAN",
+  "scope": "Reviewed security repair branch published as user-approved draft PR193; latest local followup verification, no merge/npm release/deployment",
+  "worktree": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security",
+  "branch": "codex/titan-security-2026-10-21",
+  "baseCommit": "63d0a7438192e9216faa39457124574ab53e6ecb",
+  "releaseReady": false,
+  "githubSnapshot": {
+    "dependabotOpen": {
+      "total": 139,
+      "critical": 6,
+      "high": 49,
+      "medium": 68,
+      "low": 16,
+      "recordedAtUtc": "2026-10-21T21:09:33.916467+00:00",
+      "scope": "Later observed default-branch alerts, not candidate reachable-vulnerability count"
+    },
+    "secretScanningOpen": 0,
+    "codeScanning": {
+      "status": "first_advanced_analysis_completed_with_open_findings",
+      "workflowPresent": true,
+      "defaultSetup": "not-configured; advanced workflow is configured",
+      "workflowRun": 39676099237,
+      "analysisId": 2000188452,
+      "ref": "refs/pull/193/merge",
+      "mergeCommit": "d066592c4728b004a504460096dae3162bea6f59",
+      "conclusion": "success",
+      "results": 19,
+      "high": 15,
+      "medium": 4,
+      "analysisRules": 103,
+      "analysisErrors": "",
+      "analysisWarnings": "",
+      "all19BoundedSourceFlowsTriaged": true,
+      "openFindingsNotDismissed": true,
+      "triageGroups": {
+        "cors": 1,
+        "rate": 5,
+        "confined-read": 2,
+        "checkpoint-path": 5,
+        "upload-log": 2,
+        "fixture-race": 2,
+        "content-write": 2
+      },
+      "triageIsNotCleanScanOrExploitAbsenceProof": true,
+      "recordedAtUtc": "2026-10-21T21:13:18.462094+00:00",
+      "summaryReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-summary.json",
+      "triageReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+    },
+    "alertsSuppressed": 0,
+    "remoteChanges": true,
+    "reviewedExistingPullRequests": [
+      174,
+      176
+    ],
+    "initialDependabotOpen": {
+      "total": 138,
+      "critical": 6,
+      "high": 49,
+      "medium": 67,
+      "low": 16
+    },
+    "initialCodeScanning": {
+      "status": "missing_coverage",
+      "apiStatus": 404,
+      "defaultSetup": "not-configured",
+      "workflowPresent": false,
+      "workflowPresentAtSnapshot": false,
+      "candidateWorkflowPrepared": true
+    },
+    "initialRemoteChanges": false,
+    "addedDependabotAlert": {
+      "number": 470,
+      "ghsa": "GHSA-6prh-2h8m-c8cw",
+      "package": "@modelcontextprotocol/sdk",
+      "firstPatchedVersion": "1.32.0",
+      "candidateVersion": "1.32.1",
+      "candidateAffected": false,
+      "alertsClosed": 0,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/dependabot-added-alert-470-candidate-check.json"
+    },
+    "secretScanningScope": "Retained initial zero-open snapshot; no fresh secret-alert API check during this followup"
+  },
+  "dependencyAudits": {
+    "root": {
+      "before": {
+        "total": 30,
+        "critical": 3,
+        "high": 15,
+        "moderate": 11,
+        "low": 1
+      },
+      "after": 0
+    },
+    "missionControl": {
+      "before": 6,
+      "after": 0
+    },
+    "voice": {
+      "before": {
+        "total": 105,
+        "critical": 3,
+        "high": 48,
+        "moderate": 46,
+        "low": 8
+      },
+      "after": {
+        "total": 1,
+        "high": 1,
+        "scope": "development"
+      },
+      "productionAfter": 0
+    },
+    "mcpExample": {
+      "before": "unlocked, unused vulnerable SDK and unavailable titan-agent requirement",
+      "after": 0
+    },
+    "combinedCommand": "npm run audit:security",
+    "combinedExitCode": 1
+  },
+  "unresolvedAdvisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "severity": "high",
+      "patchedRelease": null,
+      "scope": "voice development lint/build tooling",
+      "activeCommands": [
+        "pnpm lint",
+        "pnpm build"
+      ],
+      "productionReachable": false,
+      "paths": [
+        [
+          "eslint-config-next@15.5.28",
+          "@next/eslint-plugin-next@15.5.28",
+          "fast-glob@3.3.1",
+          "micromatch@4.0.8",
+          "braces@3.0.3"
+        ],
+        [
+          "eslint-config-next@15.5.28",
+          "@typescript-eslint/parser@8.32.1",
+          "@typescript-eslint/typescript-estree@8.32.1",
+          "fast-glob@3.3.3",
+          "micromatch@4.0.8",
+          "braces@3.0.3"
+        ]
+      ],
+      "mitigation": "Retain ESLint coverage; use only trusted root/project glob configuration; audit gate remains failing until a reviewed compatible fix is available.",
+      "suppressed": false
+    }
+  ],
+  "repairs": {
+    "mcpHttp": {
+      "bind": "127.0.0.1",
+      "maxBodyBytes": 1048576,
+      "browserOrigin": "rejected",
+      "fixtureTestsPassed": 5,
+      "stdioPreserved": true
+    },
+    "composeCredentials": {
+      "literalFieldsRemoved": [
+        "SONARR_API_KEY",
+        "RADARR_API_KEY",
+        "TMDB_API_KEY"
+      ],
+      "syntheticInterpolation": "passed",
+      "containersStarted": false,
+      "rotationCompleted": false
+    },
+    "discovery": {
+      "before": [
+        "--print",
+        "hello"
+      ],
+      "after": {
+        "operation": "statSync(candidate).isFile() plus accessSync(candidate, X_OK)",
+        "startsExecutable": false,
+        "meaning": "installation presence only; not authentication or inference readiness"
+      },
+      "explicitChatOptInPreserved": false,
+      "realCliUnitTestsReplaced": true,
+      "manualIntegrationGate": "Codex only; environment authorization and explicit CLI flag plus provider=codex required; Claude rejected",
+      "legacyOptInsIgnored": [
+        "allowClaudeCode",
+        "providerOptions.allowClaudeCode"
+      ],
+      "dedicatedClaudeExecution": "unconditionally disabled by shared standing policy",
+      "isClaudeCodeAllowed": false,
+      "cliModelsAdvertised": 0,
+      "cliConfigured": false,
+      "adapterRegistered": false,
+      "prohibitedAliasesRejectedBeforeQueue": true,
+      "routerRejectsBeforeRetryOrFallback": true,
+      "anthropicApiAndLocalModelsPreserved": true
+    },
+    "runtimePolicy": {
+      "nodeRange": "^22.23.4 || ^24.22.1 || ^26.12.1",
+      "manifestCount": 4,
+      "preflightBoundaries": [
+        "CLI first import",
+        "Doctor entry",
+        "direct gateway startup"
+      ],
+      "rejects": [
+        "affected older releases",
+        "EOL lines",
+        "prereleases",
+        "unreviewed majors"
+      ],
+      "dockerVersionTag": "22.23.4",
+      "ciSelectorsPinned": 5,
+      "nodeSourcePackage": "22.23.4-1nodesource1",
+      "officialInputsVerified": true,
+      "dockerImagesBuilt": false,
+      "nativeGpuExecution": false,
+      "installedRuntimeChanged": false,
+      "productionRuntimeVerified": false,
+      "assessment": "docs/runtime-security-addendum-2026-10-21.md"
+    },
+    "codeQL": {
+      "workflow": ".github/workflows/codeql.yml",
+      "localConfiguration": "committed and independently reviewed; first hosted analysis completed",
+      "eligiblePublicRepository": true,
+      "language": "javascript-typescript",
+      "buildMode": "none",
+      "querySuite": "security-extended",
+      "events": [
+        "push main",
+        "pull_request targeting main",
+        "workflow_dispatch"
+      ],
+      "schedule": false,
+      "installsOrApplicationBuilds": false,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "security-events": "write"
+      },
+      "actionRelease": "v4.39.1",
+      "actionCommit": "9b3254085494b55a0f7c4c2b3d2d52cc712ce370",
+      "checkoutCommit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "yamlValidation": "passed",
+      "hostedAnalysisRun": true,
+      "firstHostedRun": {
+        "status": "first_advanced_analysis_completed_with_open_findings",
+        "workflowPresent": true,
+        "defaultSetup": "not-configured; advanced workflow is configured",
+        "workflowRun": 39676099237,
+        "analysisId": 2000188452,
+        "ref": "refs/pull/193/merge",
+        "mergeCommit": "d066592c4728b004a504460096dae3162bea6f59",
+        "conclusion": "success",
+        "results": 19,
+        "high": 15,
+        "medium": 4,
+        "analysisRules": 103,
+        "analysisErrors": "",
+        "analysisWarnings": "",
+        "all19BoundedSourceFlowsTriaged": true,
+        "openFindingsNotDismissed": true,
+        "triageGroups": {
+          "cors": 1,
+          "rate": 5,
+          "confined-read": 2,
+          "checkpoint-path": 5,
+          "upload-log": 2,
+          "fixture-race": 2,
+          "content-write": 2
+        },
+        "triageIsNotCleanScanOrExploitAbsenceProof": true,
+        "recordedAtUtc": "2026-10-21T21:13:18.462094+00:00",
+        "summaryReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-summary.json",
+        "triageReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+      }
+    },
+    "externalExecution": {
+      "crossProviderShell": false,
+      "crossProviderCodexArgv": [
+        "exec",
+        "--json",
+        "-"
+      ],
+      "promptTransport": "literal stdin",
+      "aiderCrossProviderArgv": [
+        "--yes"
+      ],
+      "captureMaxBytesPerStream": 65536,
+      "displayMaxCharacters": 5000,
+      "parentTimeoutMs": 120000,
+      "delegateCodexArgv": [
+        "exec",
+        "--full-auto",
+        "-"
+      ],
+      "delegateCodexPrompt": "stdin",
+      "openCodePrompt": "after -- separator",
+      "optionValuePrompts": [
+        "--message=",
+        "--text=",
+        "--prompt="
+      ],
+      "shellMetacharacterAndLeadingFlagFixtures": "passed with controlled executables",
+      "timeoutProcessTreeCoverage": "parent only; descendant cleanup unverified",
+      "nativeOsSandbox": false
+    },
+    "credentialFileModes": {
+      "files": [
+        "titan.json",
+        "auth-tokens.json"
+      ],
+      "posixFileMode": "0600",
+      "posixHomeMode": "0700",
+      "atomicReplacement": true,
+      "temporaryFileMode": "0600",
+      "repairsExistingBroadModes": true,
+      "recursiveChmod": false,
+      "unrelatedFilesAndAncestorsPreserved": true,
+      "modeFixturesSkippedOnWindows": true,
+      "productionPermissionRemediation": "separate operational track; not performed by this source change"
+    },
+    "selfModificationGate": {
+      "runtimeApply": "unconditionally disabled by security hold",
+      "bypassByConfiguration": false,
+      "bypassByHumanApproval": false,
+      "bypassByApprovingReviewer": false,
+      "mutableBundleReadOnApply": false,
+      "scannerOrReviewerStartedOnApply": false,
+      "snapshotCopyOrArchiveOnApply": false,
+      "candidateRemainsStaged": true,
+      "approvalHandlerReportsMergedOrGoalCompleted": false,
+      "preservedCapabilities": [
+        "staging",
+        "manual inspection/export",
+        "rejection"
+      ],
+      "reopeningRequirements": [
+        "target containment",
+        "immutable reviewed bytes",
+        "revision-bound human approval"
+      ],
+      "configuredReviewerFallback": false,
+      "configuredReviewerAutoRewritten": false,
+      "secretFindingMatch": "[REDACTED]",
+      "licenseIdentifiersPreserved": true,
+      "scannerMaxSourceBytes": 5242880,
+      "typedScannerErrors": true,
+      "scannerRejects": [
+        "missing directory",
+        "enumeration/stat/read failure",
+        "oversized source",
+        "changing source",
+        "symlink",
+        "special entry",
+        "unsupported format"
+      ],
+      "addedScannedExtensions": [
+        ".mjs",
+        ".cjs",
+        ".mts",
+        ".cts"
+      ],
+      "scannerContentExclusions": [
+        "exact root bundle.json metadata",
+        "explicit image/font/media assets"
+      ],
+      "excludedFilesReported": true,
+      "externalSymlinkTargetsRead": false,
+      "cleanScanAuthorizesApply": false,
+      "stagingDisabledDirectDedicatedSelfModWrite": "refused with security-hold result",
+      "ordinaryWorkspaceWritesUnchanged": true
+    },
+    "reportHtml": {
+      "commit": "87a9fa2d",
+      "sanitizer": "DOMPurify3.4.17",
+      "dependencyIntegrityInUiLock": true,
+      "parentShadowHtmlInsertionRemoved": true,
+      "iframeSandbox": "",
+      "scriptsAndSameOriginAllowed": false,
+      "ownedCspBeforeContent": true,
+      "relativeAndExternalImageRequests": "explicit placeholders",
+      "dataBlobImagesAndStyledReportsPreserved": true,
+      "universalBrowserAvailabilitySandboxClaim": false
+    },
+    "widgetBridge": {
+      "commit": "87a9fa2d",
+      "requiredMessageBoundary": [
+        "exact live owned iframe WindowProxy",
+        "opaque null origin",
+        "32-byte random capability"
+      ],
+      "ambientAuthReads": false,
+      "apiNetworkCanvasProxy": "unconditional security hold pending scoped grants",
+      "staticRenderingPreserved": true,
+      "privateState": "in-memory per runtime",
+      "dormantPreviewHoldCommit": "35f45323",
+      "dormantPreviewHasIframeCodeCdnOrProxy": false,
+      "currentDormantOwnerExploitClaim": false
+    },
+    "cronControls": {
+      "commit": "d34f0044",
+      "sharedHttpToolHelper": true,
+      "currentEnabledAndHandleCheckedBeforeDispatch": true,
+      "synchronousPersistenceBeforeSuccess": true,
+      "failedDisable": "stays stopped; returns error",
+      "failedEnable": "no new timer; returns error",
+      "alreadyStartedWorkDrained": false,
+      "cancelledGoalsCountedActive": false
+    },
+    "fileConfinement": {
+      "commit": "b979baf0",
+      "sessionIdentifiersConfined": true,
+      "rootIdentity": "policy-selected canonical root pinned per request by device/inode",
+      "symlinksSpecialFilesMultipleLinksRefused": true,
+      "boundedDescriptorOperations": true,
+      "platforms": [
+        "linux",
+        "darwin"
+      ],
+      "unsupportedPlatform": "fail closed",
+      "crossDirectoryRename": "refused",
+      "atomicNoOverwriteAgainstConcurrentWritersClaim": false,
+      "globalRootLifetimePinningClaim": false,
+      "generalFilesystemOrShellSandboxClaim": false,
+      "focusedCasesPassed": 126
+    },
+    "gcmAuthentication": {
+      "commit": "b9f4ca45",
+      "tagBytes": 16,
+      "ivBytes": 16,
+      "strictEncodedFields": true,
+      "savedFormatChanged": false,
+      "ownerSecretReadOrRewritten": false,
+      "focusedAndExistingCasesPassed": 171
+    },
+    "workflowPins": {
+      "rootCommit": "11d3c41e",
+      "nestedCommit": "485e35e1",
+      "rootEntryReferences": 29,
+      "rootChangedMutableReferences": 26,
+      "rootAlreadyPinnedCodeqlReferences": 3,
+      "nestedEntryReferences": 4,
+      "nestedWorkflowsActiveInCurrentRepositoryLayout": false,
+      "selectedActionVersionsTriggersInputsCommandsPermissionsChanged": false,
+      "nestedLivekitCommitUnsigned": true,
+      "nestedLivekitCompositeInternalCheckoutStillMutable": true,
+      "transitiveActionTreeImmutabilityClaim": false,
+      "hostedExecutionDuringLocalPinAuthoring": false,
+      "laterHostedExecution": "Initial authorized PR193 CI/Eval/CodeQL runs executed later; their exact results are recorded separately."
+    },
+    "optionalVoiceService": {
+      "commit": "32c8da4a1582b3bc3538eb03c4dc2bc2218cd803",
+      "defaultHost": "127.0.0.1",
+      "separateServiceCredentialRequired": true,
+      "authAndExactOriginBeforeBodyOrModels": true,
+      "gatewayConfiguredTtsCredential": "exact explicitly configured service origin only; HTTPS except literal loopback; no userinfo/redirects",
+      "gatewayCredentialFallback": false,
+      "publicHealth": "minimal unauthenticated status",
+      "bodyFrameAndAccumulatedUtteranceBounds": true,
+      "inProcessAsgiVadCasesPassed": 16,
+      "fakeFetchAndVoiceConfigCasesPassed": 25,
+      "ownerSecretMicrophoneSpeakerModelsOrLiveDeploymentUsed": false,
+      "optionalPythonModelSupplyChainFullyAudited": false
+    },
+    "gatewayAuthentication": {
+      "commit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "earliestBeforeBodiesStaticAndProxies": true,
+      "protectedNamespaces": [
+        "/api",
+        "/v1",
+        "/ollama",
+        "/paperclip",
+        "/mcp",
+        "/metrics"
+      ],
+      "missingBlankUnknownAuthFailsClosed": true,
+      "freshDefaultRequiresPrivateSetup": true,
+      "newAmbientCredentialEnvironmentBinding": false,
+      "effectiveMeshBindValidatedBeforeSideEffects": true,
+      "capturedListenHostRecheckedHttpAndWs": true,
+      "networkListenerNoAuthTransition": "409 before persistence",
+      "localNoAuthBrowserPolicy": "trusted Host, exact trusted Origin when supplied, no cross-site Fetch Metadata; native local clients preserved",
+      "persistedOriginAllowlist": "maximum64 exact HTTP(S) origins; no wildcard/path/userinfo",
+      "options": "terminates before operation dispatch",
+      "paperclip": "allAPI/UI authenticated; strips auth/cookie/proxy/referrer/originalURLheaders and tokenquery; redirects:error; iframewithoutbearer401",
+      "mcp": "single gateway bearer; valid native ping fixture",
+      "webhooks": {
+        "Messenger": "missingsecret/signature deny; exact bounded rawJSON; appsecret cached at adapterconnect; no verifytokenlogging",
+        "LINE": "documented rawbody HMAC with existingchannel apiKey secret",
+        "Twilio": "configured AuthToken and completeURL/POSTsignature forvoice/GET+POSTpoll/status",
+        "Dograh": "separate configured credential preserved",
+        "Lark": "503securityhold beforebody/dispatch",
+        "audio": "96-bit randomcapability/shortTTL; audio maycontainprivatespeech"
+      },
+      "optionalExample": "local/no-auth only; no bearerforwarding, no anonymousfallback for protectedgateway",
+      "documentation": "docs/gateway-authentication.md",
+      "postPublicationRateLimit": {
+        "commit": "53fef0c98d851885a6f3c72e2c42a397cff86644",
+        "socketPeerOnly": true,
+        "separateLimiterBuckets": true,
+        "existingThresholdsCleanupCapPreserved": true,
+        "redCases": 2,
+        "focusedPassed": 78,
+        "typecheckExitCode": 0,
+        "lintErrors": 0,
+        "lintWarnings": 247,
+        "independentSourceReview": "passed",
+        "reverseProxyClientsSharePeerQuota": true
+      },
+      "postPublicationTokenLogin": {
+        "commit": "27fb565281e552f081eefdf0866f32ddd8b236a7",
+        "redCases": 1,
+        "focusedPassed": 79,
+        "tokenModeRoundtrip": "configured credential accepted; no password-session persistence",
+        "passwordModeRoundtrip": "separate session accepted; credential not echoed",
+        "successfulLoginNoStore": true,
+        "independentSourceReview": "passed"
+      }
+    },
+    "livekitDefaults": {
+      "commit": "73edabba6c139fb0c19c53b6b5ea958e5a00ae14",
+      "developmentServerAndSharedDefaultsRemoved": true,
+      "privateCredentialPairAndEarlyPreflightRequired": true,
+      "publishedVoicePorts": "five literal loopback ports",
+      "configurationSecretRedacted": true,
+      "ordinarySettingsPreserveOmittedCredentials": true,
+      "dockerCopyAllowlistExcludesPrivateEnv": true,
+      "configuredEnvironment": [
+        "LIVEKIT_URL",
+        "LIVEKIT_API_KEY",
+        "LIVEKIT_API_SECRET"
+      ],
+      "syntaxDoesNotProveEntropy": true,
+      "localMediaOnly": true,
+      "mutableImagesPythonModelSupplyChainRemain": true,
+      "dockerBuildOrDeployment": false,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/livekit-remediation-receipt.json"
+    },
+    "legacyVoiceSecurityHold": {
+      "commit": "281c2daeddab2b46ef6a9ef44587cf42904abaf4",
+      "originalAnonymousIssuance": "development mode; original production already threw",
+      "postToken": "503/no-store before credential reads or SDK construction",
+      "setup": "exit1 before env writes/clone/install",
+      "testsPassed": 4
+    },
+    "autopilotControls": {
+      "apiCommit": "bbc25c136f7047c9e0d98bcc57d40856f31729d2",
+      "schedulerCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "durableAcknowledgmentOnly": true,
+      "failedDisableStopsCurrentProcessButWarnsRestartRisk": true,
+      "failedEnableDoesNotStartOrMutateDryRun": true,
+      "strictProvidedBooleansBeforeConfigOrEffects": true,
+      "implicitObjectTogglePreserved": true,
+      "retiredScheduledCallbacksRejectByGenerationHandleAndLatestEnabled": true,
+      "manualRunsUnchanged": true,
+      "inFlightDrainClaim": false,
+      "realRouteCasesPassed": 18,
+      "routeGroupPassed": 82,
+      "schedulerCasesPassed": 7,
+      "engineGroupPassed": 87,
+      "apiReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-autopilot-controls.json",
+      "schedulerReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/autopilot-scheduler-security-receipt.json"
+    },
+    "evalCiAuthentication": {
+      "commit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+      "isolatedProfileMode": "0700",
+      "configMode": "0600",
+      "freshRandomTokenBytes": 32,
+      "maskedBeforeGithubEnv": true,
+      "usesRepositoryOrOwnerSecrets": false,
+      "exactLoopbackEphemeralPort": true,
+      "explicitStubBenchSupervised": true,
+      "all11SuitesAnd80PercentThresholdPreserved": true,
+      "immutableActionPinsPreserved": true,
+      "emptySuitesFailClosed": true,
+      "boundedHealthAndEvalTimeouts": true,
+      "ownedPidStoppedBeforeProfileRemoval": true,
+      "tokenAbsentFromRetainedGatewayLog": true,
+      "tokenInCurlArgvWithinEphemeralJob": true,
+      "acceptanceCompiledSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/eval-workflow-acceptance.json"
+    },
+    "linuxPreviewFixture": {
+      "commit": "721d26d445cfc4ec6bb725d458dd219fb64c719f",
+      "productPolicyUnchanged": true,
+      "privateCanonicalScratchOutsideAllowedRoots": true,
+      "preservesOutside404Registered200SymlinkAndTmpAllowance": true
+    }
+  },
+  "secrets": {
+    "scanner": "Gitleaks 8.30.1",
+    "redaction": 100,
+    "suppressionsAdded": 0,
+    "historyDetections": 38,
+    "currentBefore": 19,
+    "currentAfter": 24,
+    "currentRemaining": "23 deliberately synthetic test values and one secret-detection regex",
+    "historicalPotentialCredential": {
+      "file": "docs/HANDOFF-2026-05-03.md",
+      "commit": "13791ec0fe41",
+      "activeStatus": "Read-only in-memory comparison found no match among currently configured/persisted TITAN tokens; cached sessions/other clients unknown. No historical-token authentication attempted.",
+      "service": "TITAN gateway on Titan PC, loopback port 48420, deployed under /opt/TITAN",
+      "field": "Authorization: Bearer",
+      "documentedEndpoints": [
+        "/api/health",
+        "/api/social/state"
+      ],
+      "rotationCompleted": false,
+      "lines": [
+        98,
+        101
+      ],
+      "precedingContextLine": 97
+    },
+    "requiredFollowup": "Rotate previously embedded Sonarr, Radarr and TMDB integration credentials if used; rotate the historical Titan PC gateway bearer token if still used. No credential validity was tested.",
+    "currentTrackedFiles": 1882,
+    "latestCurrentLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gitleaks-release-candidate-current.json",
+    "latestHistoryLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gitleaks-release-candidate-history.json",
+    "previousSourceCheckpoint": {
+      "sourceCommit": "32c8da4a1582b3bc3538eb03c4dc2bc2218cd803",
+      "trackedFiles": 1871,
+      "currentDetections": 16,
+      "historyDetections": 30,
+      "reportsPreserved": true
+    },
+    "afterComposeBeforeNewTests": 16,
+    "newSyntheticFixtureDetections": 8,
+    "finalReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gitleaks-release-candidate-receipt.json",
+    "finalSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+    "newFixtureSites": {
+      "tests/config-loader.test.ts": 2,
+      "tests/livekit-compose.test.ts": 2,
+      "tests/livekit-credentials.test.ts": 1,
+      "tests/settings-voice-security.test.ts": 1,
+      "titan-voice-agent/test_credentials.py": 1,
+      "tests/legacy-livekit-security.test.ts": 1
+    },
+    "scanScope": "Dated e5a53171 pre-publication full-history/current scan:1882tracked/24current/38history; no new broad scan in this followup. Later small source/fixture/CI diffs received direct review.",
+    "currentTrackedFilesScope": "The1882 value is the scanned e5 checkpoint; it is not the tracked-file inventory of the later fb1 source."
+  },
+  "verification": {
+    "backendBuild": "passed",
+    "missionControlBuild": "passed",
+    "voiceBuild": "passed",
+    "rootTypecheck": "passed",
+    "voiceTypecheck": "passed",
+    "exampleTypecheck": "passed",
+    "rootLint": {
+      "errors": 0,
+      "warnings": 247,
+      "exitCode": 0,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-lint.log",
+      "logSha256": "84117394bf12d1927b7df388035f240049157c3937076254d4284d5e2f98cb74"
+    },
+    "voiceLint": "passed with warnings",
+    "compatibility": {
+      "simpleGit": "fixture passed, including disclosed unsafe-operation rejection",
+      "nodeLlamaCpp": "API exports load; no model loaded"
+    },
+    "evalGate": {
+      "suitesPassed": 11,
+      "suitesTotal": 11,
+      "casesPassed": 55,
+      "casesTotal": 57,
+      "thresholdSatisfied": true
+    },
+    "targetedConfigAndCliTests": {
+      "filesPassed": 6,
+      "casesPassed": 97
+    },
+    "fullSuite": {
+      "status": "passed",
+      "sourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "filesPassed": 435,
+      "filesTotal": 435,
+      "casesPassed": 8976,
+      "casesSkipped": 9,
+      "casesTotal": 8985,
+      "exitCode": 0,
+      "unhandledErrors": 0,
+      "durationSeconds": 82.92,
+      "wallDurationSeconds": 83.41,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-full-suite.log",
+      "logSha256": "a876948c7a56d47784d08dc839a48571af8890bb2c13d27baf18c45fe0ba2114"
+    },
+    "baselineComparison": {
+      "configFailureReproducedOnOriginalMainLock": true,
+      "productDefaultsChanged": false,
+      "fixtureRepair": "isolated user config and provider-key inputs; original expectations retained"
+    },
+    "previousFullSuiteAttempts": {
+      "cleanExit": false,
+      "realCliProcessesStarted": true,
+      "inferenceOrCharges": "unknown",
+      "ownedProcessesStopped": true,
+      "logsPreserved": true
+    },
+    "gitNexus": {
+      "status": "unavailable",
+      "reason": "No TITAN index in available service"
+    },
+    "remainingOwnedMetaVrProcesses": 0,
+    "discoveryPresenceChecks": {
+      "childProcessStarts": 0,
+      "regularExecutable": true,
+      "nonExecutableRejected": true,
+      "directoryRejected": true,
+      "executableSymlink": true,
+      "brokenSymlinkRejected": true,
+      "autonomousChatDeniedWithoutExecution": true
+    },
+    "validatedNodeVersion": "24.22.1",
+    "targetedRuntimeAndFixtureTests": {
+      "filesPassed": 11,
+      "casesPassed": 326
+    },
+    "earlierPatchedNodeSuite": {
+      "filesPassed": 416,
+      "casesPassed": 8741,
+      "casesSkipped": 9,
+      "exitCode": 1,
+      "unhandledErrors": 5,
+      "reason": "Pending detached scopedPause imports from unchanged threshold tests during teardown",
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-final.log"
+    },
+    "matrixUnitNetworkAttempt": {
+      "earlierAttempt": "matrix.org SDK requests with a synthetic token",
+      "realCredentialUsed": false,
+      "fixtureNowControlled": true,
+      "productionChannelCodeChanged": false,
+      "whatsAppSdkNowControlled": true
+    },
+    "networkGuard": {
+      "scope": "Node TCP/TLS/DNS/UDP/fetch in this test process and descendant Node processes",
+      "allowed": "loopback and local IPC only",
+      "selfTest": "external operations blocked before dispatch; real loopback HTTP passed",
+      "hostFirewallChanged": false,
+      "osSandboxForArbitraryNativeChildren": false,
+      "dependencyAdded": false,
+      "file": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/loopback-network-guard.mjs",
+      "defaultSuiteFullyNetworkIsolated": false,
+      "runnerErrorsIgnored": false,
+      "earlierBaileysAttempt": "Prior guarded run blocked a WhatsApp/Baileys websocket attempt; that unit now uses a controlled SDK fixture"
+    },
+    "firstPatchedNodeSuite": {
+      "filesPassed": 413,
+      "filesFailed": 3,
+      "casesPassed": 8735,
+      "casesFailed": 6,
+      "casesSkipped": 9,
+      "exitCode": 1,
+      "reason": "Synthetic CLI shebang failed for a Node executable path containing spaces; one stale floating Docker-tag expectation",
+      "productDefaultsChanged": false,
+      "assertionsLoosened": false,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-patched-node-final.log"
+    },
+    "remainingOwnedFixtureOrMcpProcesses": 0,
+    "targetedSecurityBoundaryTests": {
+      "filesPassed": 16,
+      "casesPassed": 318
+    },
+    "redBeforeGreenAfter": {
+      "claudeAndCrossProviderCasesFailedBefore": 28,
+      "privateFileModeCasesFailedBefore": 3,
+      "delegateArgumentCasesFailedBefore": 5,
+      "mandatoryReviewCasesFailedBefore": 4,
+      "reviewerFallbackCasesFailedBefore": 1,
+      "scannerGatePrivacyCasesFailedBefore": 2,
+      "scannerCompletenessCasesFailedBefore": 11,
+      "logsPreserved": true,
+      "realProviderCliUsed": false,
+      "runtimeApplyHoldCasesFailedBefore": 3,
+      "stagingDisabledDirectWriteFailedBefore": 1,
+      "uiOriginalBoundaryCasesFailedBefore": 7,
+      "expandedBridgeCasesFailedBefore": 9,
+      "dormantPreviewCaseFailedBefore": 1
+    },
+    "targetedHoldConfigAndProviderTests": {
+      "filesPassed": 6,
+      "casesPassed": 285
+    },
+    "priorRuntimeFloorFullSuite": {
+      "status": "passed",
+      "exitCode": 0,
+      "filesPassed": 416,
+      "filesTotal": 416,
+      "casesPassed": 8741,
+      "casesSkipped": 9,
+      "casesTotal": 8750,
+      "unhandledErrors": 0,
+      "durationSeconds": 81.79,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-loopback-final.log"
+    },
+    "policyFullCheckpoint": {
+      "status": "passed",
+      "filesPassed": 422,
+      "casesPassed": 8793,
+      "casesSkipped": 9,
+      "casesTotal": 8802,
+      "exitCode": 0,
+      "durationSeconds": 84.34,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-hold-cron-guarded.log",
+      "beforeLaterCronPersistenceFileGcmUiVoiceChanges": true
+    },
+    "targetedExecutionPolicyStorageHoldTests": {
+      "filesPassed": 15,
+      "casesPassed": 481
+    },
+    "targetedUiSecurityTests": {
+      "filesPassed": 3,
+      "casesPassed": 29
+    },
+    "uiDisposableChrome": {
+      "baselineSource": "a2c8873a",
+      "baselineSyntheticXssMarker": true,
+      "baselineForgedApiDispatches": 1,
+      "repairedSyntheticXssMarker": false,
+      "repairedForgedApiDispatches": 0,
+      "styledReportAndTableVisible": true,
+      "ownedPrivateStateRoundtripPassed": true,
+      "ownedApiReturnsSecurityHold": true,
+      "externalPageRequestsObserved": 0,
+      "pageErrors": 0,
+      "ownerProfileOrSessionUsed": false,
+      "notGlobalOsNetworkSandbox": true,
+      "earlierAttackerDeliveryFixtureRaceRetainedAndCorrected": true,
+      "results": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/ui-security-browser-results.json"
+    },
+    "packageDryRun1426Files": "earlier dependency checkpoint; not final package inventory",
+    "source32c8da4aFullCheckpoint": {
+      "filesPassed": 427,
+      "filesFailed": 1,
+      "casesPassed": 8884,
+      "casesFailed": 1,
+      "casesSkipped": 9,
+      "casesTotal": 8894,
+      "exitCode": 1,
+      "durationSeconds": 82.19,
+      "reason": "One stale Node-only TDI sanitizer fixture lacked a browser window after maintained DOM sanitizer migration; repaired with hermetic JSDOM and stronger actual-placeholder assertion, no product relaxation",
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-security-source-guarded.log"
+    },
+    "targetedUiAndImageCases": {
+      "filesPassed": 4,
+      "casesPassed": 41,
+      "testFixtureCommit": "60359c97",
+      "productAssertionsLoosened": false
+    },
+    "sourceAndLockBindingReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-verification.json",
+    "finalBuildLogs": {
+      "backend": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-backend-build.log",
+      "missionControl": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-ui-build.log",
+      "standaloneVoice": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-standalone-voice-build.log"
+    },
+    "retainedFullSuiteLogs": [
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-after-hermetic.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-hold-cron-guarded.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-isolated.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-policy-guarded-valid.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-policy-guarded.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-security-source-guarded.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-patched-node-final.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-presence-final.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-release-candidate-e5a53171.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-final.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-runtime-floor-loopback-final.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-secure-fixtures.log",
+      "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests.log"
+    ],
+    "gatewayBoundary": {
+      "focusedFilesPassed": 6,
+      "focusedCasesPassed": 169,
+      "independentFilesPassed": 3,
+      "independentCasesPassed": 84,
+      "actualGatewayRedCasesBefore": 4,
+      "focusedLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gateway-auth-green-verified.log",
+      "redLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gateway-auth-red-before.log",
+      "independentLog": "/tmp/titan-gateway-auth-independent-review.log",
+      "newEslintDiagnostics": 0,
+      "legacyTestOnlyFunctionTypeErrors": 7,
+      "lintComparison": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gateway-auth-lint-baseline-comparison.json",
+      "intermediateFixtureFailuresRetained": [
+        "gateway-auth-green-initial.log",
+        "gateway-auth-green-final.log"
+      ]
+    },
+    "gatewayDisposableChrome": {
+      "ownerSessionUsed": false,
+      "realUpstreamOrProviderCalls": 0,
+      "localFixtureOnly": true,
+      "helperSha256": "10dd9490898af862a9c32e66fbbaa62076494d46379ebd13e17ae2c6d23f3e1a",
+      "foreignFetchRejected": true,
+      "foreignDispatches": 0,
+      "sameOriginStatus": 200,
+      "sameOriginDispatches": 1,
+      "authenticatedCorsStatus": 200,
+      "finalDispatches": 2,
+      "browserPreflightRequests": 2,
+      "preflightNeverDispatched": true,
+      "externalPageRequestsObserved": 0,
+      "crossSiteNoOriginSubresourceDenied": true,
+      "passed": true,
+      "results": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gateway-auth-browser-results.json",
+      "priorInterceptionCheckpointDidNotProvePreflight": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/gateway-auth-browser-routed-checkpoint.json"
+    },
+    "livekitFocused": {
+      "typescriptCasesPassed": 113,
+      "stdlibPythonCasesPassed": 4,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/livekit-remediation-receipt.json",
+      "noModelsDockerDaemonOrLiveMedia": true
+    },
+    "legacyVoiceHoldCasesPassed": 4,
+    "finalOwnedProcessCheck": {
+      "scope": "Exact process groups started by post-publication final verification wrapper; separate broader historical receipt retained",
+      "remaining": 0,
+      "checkedAtUtc": "2026-10-21T21:33:22.669662+00:00",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-verification.json"
+    },
+    "finalBuildExitCodes": {
+      "backend": 0,
+      "missionControl": 0,
+      "standaloneVoice": 0
+    },
+    "finalAudit": {
+      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "exitCode": 1,
+      "rootFindings": 0,
+      "missionControlFindings": 0,
+      "exampleFindings": 0,
+      "standaloneVoiceFindings": 1,
+      "standaloneVoiceProductionFindings": 0,
+      "remaining": "GHSA-vfj7-8cjw-p6xm, development lint tooling; no patched release identified",
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-dependency-audit.log"
+    },
+    "prePublicationSourceE5FullSuite": {
+      "status": "passed",
+      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "filesPassed": 433,
+      "filesTotal": 433,
+      "casesPassed": 8947,
+      "casesSkipped": 9,
+      "casesTotal": 8956,
+      "exitCode": 0,
+      "unhandledErrors": 0,
+      "durationSeconds": 82.88,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-release-candidate-e5a53171.log"
+    },
+    "prePublicationSourceAndLockBindingReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-candidate-source.json",
+    "prePublicationRootLint": {
+      "errors": 0,
+      "warnings": 247,
+      "exitCode": 0,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/release-candidate-lint.log"
+    },
+    "prePublicationFinalOwnedProcessCheck": {
+      "checkedAtUtc": "2026-10-21T21:01:37.393132+00:00",
+      "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "remainingOwnedFixtureOrMcpProcesses": 0,
+      "scope": "Exact isolated workspace/evidence process argument and selected Node/browser/CLI/MCP working-directory markers; current audit process/ancestors excluded; no unrelated process killed",
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/final-owned-process-check.json",
+      "unrelatedProcessesKilled": false
+    },
+    "postPublicationVerification": {
+      "schemaVersion": 1,
+      "startedAtUtc": "2026-10-21T21:31:48.550051+00:00",
+      "sourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "sourceTree": "2938218854127c6bddfca69b92dffc3d129c1bc1",
+      "previousVerifiedSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "statusBefore": [],
+      "lockSha256": {
+        "package-lock.json": "0c497e3464a955a810388db61dfbd9d63fc893e6ca9effc27ec9a5ddb731b202",
+        "ui/package-lock.json": "35b2686d97b740dda7d1d195170598a2374c46f5b01ed4262c5c978cf84ab196",
+        "examples/mcp-server/package-lock.json": "0204517041227a28a7485a225926b1859fd5f83a0903e7278faff37f6572eb6d",
+        "titan-voice-ui/pnpm-lock.yaml": "60145bd273ae02819d9c20c615a38e92727a65ee95e4334203109a660e5ab82d"
+      },
+      "nodeVersion": "v24.22.1",
+      "scope": "One final local default full suite and backend build/type/lint for reviewed PR followups; no UI/standalone rebuild, audit refresh, deployment, provider integration or hosted rerun.",
+      "environment": {
+        "homeIsolation": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-isolated-home.mjs",
+        "testHome": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-test-home-1792618308549557000",
+        "globalTitanHomeUnset": true,
+        "loopbackGuard": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/loopback-network-guard.mjs",
+        "nativeChildOsSandbox": false,
+        "realProviderIntegrationRequested": false
+      },
+      "checks": {
+        "full-suite": {
+          "command": [
+            "npm",
+            "test",
+            "--",
+            "--max-workers=2"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 83.41,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-full-suite.log",
+          "logSha256": "a876948c7a56d47784d08dc839a48571af8890bb2c13d27baf18c45fe0ba2114",
+          "filesPassed": 435,
+          "testsPassed": 8976,
+          "testsSkipped": 9,
+          "testsTotal": 8985,
+          "suiteSummary": [
+            "Test Files  435 passed (435)",
+            "Tests  8976 passed | 9 skipped (8985)",
+            "Duration  82.92s (transform 6.19s, setup 0ms, import 20.60s, tests 99.73s, environment 23ms)"
+          ]
+        },
+        "backend-build": {
+          "command": [
+            "npm",
+            "run",
+            "build"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 0.87,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-backend-build.log",
+          "logSha256": "c52b1662bc0d4213092143349aa16a2c935bbd514345270bd07507ee4d6c6bd8"
+        },
+        "typecheck": {
+          "command": [
+            "npx",
+            "tsc",
+            "--noEmit"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 4.95,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-typecheck.log",
+          "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "lint": {
+          "command": [
+            "npm",
+            "run",
+            "lint"
+          ],
+          "exitCode": 0,
+          "durationSeconds": 4.81,
+          "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-final-lint.log",
+          "logSha256": "84117394bf12d1927b7df388035f240049157c3937076254d4284d5e2f98cb74",
+          "errors": 0,
+          "warnings": 247
+        }
+      },
+      "ownedProcessGroups": [
+        89912,
+        92780,
+        92801,
+        92852
+      ],
+      "completedAtUtc": "2026-10-21T21:33:22.669662+00:00",
+      "statusAfter": [],
+      "locksUnchanged": true,
+      "remainingExactOwnedGroupProcesses": [],
+      "privateTestHomeRemoved": true,
+      "passed": true
+    },
+    "buildSourceBindings": {
+      "latestBackendBuildAndRootTypesLint": "fb1fab46205fea709455dc0dec00b6846f16a673",
+      "unchangedMissionControlAndStandaloneVoiceRetainedBuilds": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "allFourLocksUnchanged": true,
+      "freshAuditOrUiVoiceBuildRepeated": false
+    },
+    "postPublicationAuthFocusedReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-auth-followups.json",
+    "postPublicationAutopilotReceipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/post-publication-autopilot-controls.json",
+    "initialHostedFailures": {
+      "head": "fd133ea61dc36704fd29e18276dd0e8bcec19807",
+      "ci": {
+        "run": 39676099151,
+        "url": "https://github.com/Djtony707/TITAN/actions/runs/39676099151",
+        "conclusion": "failure",
+        "filesPassed": 431,
+        "filesFailed": 1,
+        "testsPassed": 8908,
+        "testsFailed": 1,
+        "testsSkipped": 12,
+        "cause": "Preview fixture under Linux /tmp collided with deliberately allowed preview policy",
+        "repairCommit": "721d26d445cfc4ec6bb725d458dd219fb64c719f",
+        "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-initial-ci-39676099151.log"
+      },
+      "eval": {
+        "run": 39676099266,
+        "url": "https://github.com/Djtony707/TITAN/actions/runs/39676099266",
+        "conclusion": "failure",
+        "evalSuitesRan": false,
+        "cause": "Unconfigured fresh default token auth refused gateway boot; old health/eval requests also lacked bearer",
+        "repairCommit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+        "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-initial-eval-39676099266.log"
+      },
+      "originalRunsPreservedNoRerun": true
+    },
+    "workflowLocalAcceptance": {
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/eval-workflow-acceptance.json",
+      "compiledSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+      "workflowRepairCommit": "cfff1860ee339ae81e67cadca8100f3ba7e36091",
+      "all11SuitesMeet80Percent": true,
+      "passed": 55,
+      "total": 57,
+      "healthExpectedStatusAssertionsPassed": 3,
+      "postmanExpected401ExitCode": 1,
+      "postman200ExitCode": 0,
+      "emptySuitePriorExit": 0,
+      "emptySuiteRepairedExit": 1,
+      "ownedGatewayGone": true,
+      "privateProfileRemoved": true,
+      "tokenExportFileRemoved": true,
+      "noRealProviderIntegrationRequested": true
+    },
+    "remainingOwnedFixtureOrMcpProcessesScope": "The retained broader zero-process receipt belongs to e5; the final followup separately checks its exact owned process groups."
+  },
+  "releaseBlockers": [
+    "Unpatched high advisory in active voice development lint tooling",
+    "Historical credential exposure needs owner rotation/validation",
+    "19 open first-hosted CodeQL findings remain; bounded source-flow triage does not dismiss findings or prove exploit absence",
+    "Followup hosted CI/Eval/CodeQL results are not observed in this local report and must be checked separately before merge",
+    "Production patched-runtime verification and rollout have not been performed",
+    "External-agent timeout descendant cleanup is not verified; parent termination is not complete process-tree cancellation",
+    "Runtime self-mod application is intentionally unavailable until immutable review/target/approval binding is designed and independently reviewed",
+    "Unadjudicated static-analysis audit probes and parser/timeout/size coverage gaps require release review",
+    "Widget owner API/network/canvas capabilities intentionally held pending explicit scoped grants",
+    "Optional Python/model dependency supply chain and native/GPU/audio/multiclient acceptance remain unverified",
+    "Container/host privilege and authenticated deployment/TLS boundaries remain separate release gates",
+    "Lark inbound events intentionally held until reviewed platform signing configuration",
+    "Legacy standalone voice token/setup capabilities intentionally held; local main LiveKit requires private keys and reviewed remote rollout"
+  ],
+  "publicationRule": {
+    "source": "/Users/michaelelliott/dev/TitanBot/TITAN-main/AGENTS.md:11",
+    "instruction": "No GitHub push, no npm publish, no @next tag without Tony's GO.",
+    "humanAuthorization": "Explicit user approval received for branch push and draft PR193; original no-release/no-deploy boundaries remain."
+  },
+  "priorCodeCommits": [
+    "e5bb94a9",
+    "9112954c",
+    "1f3edbab",
+    "d01a60cd",
+    "8738318f",
+    "542876bd",
+    "f6774f6d",
+    "9de6a7ec",
+    "d34f0044",
+    "11d3c41e",
+    "b9f4ca45",
+    "a2c8873a",
+    "87a9fa2d",
+    "b979baf0",
+    "485e35e1",
+    "35f45323",
+    "32c8da4a",
+    "60359c97",
+    "281c2dae",
+    "73edabba",
+    "e5a53171",
+    "721d26d4",
+    "cfff1860",
+    "53fef0c9",
+    "27fb5652",
+    "bbc25c13",
+    "fb1fab46"
+  ],
+  "staticAnalysis": {
+    "schemaVersion": 1,
+    "date": "2026-10-21",
+    "tool": "Semgrep1.182.0",
+    "mode": "local rules,metrics off,version checks disabled,no source upload,no new suppressions",
+    "snapshot": {
+      "baseCommit": "9de6a7ec0e5bf0e42f3f01140e06d97c94245aed",
+      "snapshotAtUtc": "2026-10-21T19:56:04.509353+00:00",
+      "workingPatchSha256": "c61305134102b0c05a03f803a9a16a667bceabf896516cbcddb1e95bd3549497",
+      "trackedFilesCopied": 1858,
+      "reportedFilesScanned": 1821,
+      "rulesConfiguredInLog": 1074,
+      "rulesRunInLog": 976,
+      "localRuleFiles": 1054,
+      "localRulesInSnapshotManifest": 1152,
+      "ruleRepository": "https://github.com/semgrep/semgrep-rules",
+      "ruleCommit": "17e31e11ebac99fb7dfe1cd288f7a32151b6f3f9",
+      "ruleArchiveSha256": "9dfe6866fbecd557f507078cb79721a9eb8f4764fc2f6163648ea1320be25933",
+      "rawMatches": 3615,
+      "securityCategoryMatches": 1443,
+      "auditCategoryActionPinMatches": 14,
+      "indexedSecurityRelatedMatches": 1457,
+      "indexedRuleGroups": 37,
+      "matchesAreNotDistinctVulnerabilities": true
+    },
+    "coverageLimits": {
+      "partialParsingWarnings": 80,
+      "vendorReactRuleTimeouts": 3,
+      "jsonSkippedRules": 0,
+      "sizeLimitBytes": 2097152,
+      "largeFilesSkipped": [
+        "docs/assets/titan-desk.gif",
+        "ui/public/babel.min.js"
+      ],
+      "allSnapshotFilesReportedScanned": false,
+      "noCleanScanClaim": true,
+      "remainingProbesFullyAdjudicated": false,
+      "fullRescanAfterRepairs": false,
+      "snapshotIsBeforeFinalRepairs": true
+    },
+    "groupedTriage": [
+      {
+        "group": "Filesystem and path probes",
+        "matches": 1110,
+        "disposition": "Partial adjudication. Confirmed file-router upload/session/symlink/race and edited-file read boundaries repaired in b979baf0. Remaining generic filesystem/path probes are not fully adjudicated and remain a release-review backlog; no universal filesystem sandbox claim."
+      },
+      {
+        "group": "Dependency range audits",
+        "matches": 94,
+        "disposition": "Range-policy probes are distinct from CVEs. Four active lock graphs audited separately; voice development braces advisory remains open and fails the all-severity gate. Other example manifest probes are not declared clean by those four audits."
+      },
+      {
+        "group": "Process execution probes",
+        "matches": 52,
+        "disposition": "Partial adjudication. Dedicated Claude routes denied and external task argv/stdin hardened in a2c8873a. Generic owner-authorized shell/process features remain; remaining probes are not fully adjudicated. Descendant cancellation is not verified and remains a release gate."
+      },
+      {
+        "group": "HTTP and WebSocket transport",
+        "matches": 47,
+        "disposition": "All 28 literal React HTTP-rule matches are in loopback tests. Subsequent boundary tracing confirmed and repaired gateway auth/proxy/webhook bypasses (e5a53171), optional voice auth (32c8da4a), main LiveKit defaults (73edabba) and legacy token/setup hold (281c2dae). Other WebSocket/Python transport probes and deployed TLS/media settings remain partially adjudicated; these are not blanket false positives or a clean transport claim."
+      },
+      {
+        "group": "Action reference pins",
+        "matches": 44,
+        "disposition": "Historical local pin-authoring checkpoint: root29 entry references (26 changed,3 CodeQL already pinned) plus4 nested references were made immutable. Pin authoring started no hosted execution; the later authorized initial PR CI/Eval/CodeQL runs and results are recorded separately. The pinned unsigned LiveKit composite still has an upstream mutable checkout reference; no transitive immutability claim."
+      },
+      {
+        "group": "HTML and response sinks",
+        "matches": 31,
+        "disposition": "Confirmed active report boundary repaired in87a9fa2d using DOMPurify plus inert opaque iframe. Other template/response sinks remain only partially adjudicated. Voice audio Buffer response and Ollama proxy streaming are not assumed HTML execution, but not all templates are reviewed."
+      },
+      {
+        "group": "Dynamic regex and ReDoS probes",
+        "matches": 24,
+        "disposition": "Not fully adjudicated. Keep explicit backlog for input ownership, length and worst-case runtime analysis; no blanket false-positive disposition."
+      },
+      {
+        "group": "Secret pattern matches",
+        "matches": 21,
+        "disposition": "Reviewed fixture/detector cases alongside independent redacted Gitleaks history/current scan. Historical credentials still require issuer rotation. Scanner counts are not evidence of current credential validity or a clean history."
+      },
+      {
+        "group": "Format string probes",
+        "matches": 6,
+        "disposition": "Not fully adjudicated. Dynamic logging/template audit sites require caller/input review; no blanket false-positive disposition."
+      },
+      {
+        "group": "Prototype property loops",
+        "matches": 6,
+        "disposition": "Config setNested uses fixed environment mapping; CLI dotted keys are local operator input. No remote global-prototype exploit reproduced. This is partial review, not a complete prototype-pollution audit of all merges/callers."
+      },
+      {
+        "group": "Dynamic method probes",
+        "matches": 4,
+        "disposition": "Not fully adjudicated. Callback/renderer method ownership and allowed property names remain explicit review work."
+      },
+      {
+        "group": "Window message bridges",
+        "matches": 4,
+        "disposition": "Confirmed SandboxRuntime source/privilege boundary repaired in87a9fa2d. Exact live frame+opaque origin+random capability required. API/network/canvas forwarding held; no ambient auth. Wildcard target is retained for opaque child replies and remains a static probe. Dormant WidgetSandbox has no current import found; its iframe/CDN/code/proxy implementation is removed and retained export is explicitly security-held. No current owner-session exploit claim."
+      },
+      {
+        "group": "Container user audits",
+        "matches": 3,
+        "disposition": "Optional voice Dockerfiles lack non-root USER. Container/host privilege and actual deployment isolation remain release gates; no container build/native GPU validation was performed."
+      },
+      {
+        "group": "CORS boundaries",
+        "matches": 2,
+        "disposition": "Gateway auth now precedes all privileged transports; local no-auth requires captured loopback bind, trusted Host/exact Origin when supplied and no cross-site Fetch Metadata. Authenticated remote CORS still requires bearer authority. Optional voice source32c8da4a requires a separate credential/exact Origin before body/model dispatch. Final gateway subset retains one CORS probe; request/browser regressions demonstrate only the scoped boundary, not all transport safety."
+      },
+      {
+        "group": "GCM authentication tags",
+        "matches": 2,
+        "disposition": "Confirmed shortened-tag acceptance repaired in b9f4ca45 with exact existing tag/IV and strict encoded-field checks. Synthetic session/vault regressions and existing encryption/security/vault suites171passed; no owner secret read or decryption."
+      },
+      {
+        "group": "Deterministic HMAC identifiers",
+        "matches": 2,
+        "disposition": "These sites generate deterministic telephony identities/opt-out hashes, not bearer-auth signatures. Public constant keys may allow telephone-number correlation/brute force; privacy review remains open."
+      },
+      {
+        "group": "Script test probes",
+        "matches": 2,
+        "disposition": "Both indexed locations are test fixtures; no product exploit is established by the two matches alone."
+      },
+      {
+        "group": "Sanitization test probes",
+        "matches": 2,
+        "disposition": "Both indexed locations are controlled test fixtures; no product sink is identified by these two matches alone. This does not clear other sanitizer boundaries."
+      },
+      {
+        "group": "Dynamic skill import",
+        "matches": 1,
+        "disposition": "Runtime intentionally imports installed skills. Complete package/source approval and containment review is not established by this triage; retained release backlog."
+      }
+    ],
+    "ruleGroups": [
+      {
+        "rule": "javascript.lang.security.audit.detect-non-literal-fs-filename",
+        "matches": 764,
+        "group": "Filesystem and path probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal",
+        "matches": 339,
+        "group": "Filesystem and path probes"
+      },
+      {
+        "rule": "json.npm.security.package-dependencies-check",
+        "matches": 94,
+        "group": "Dependency range audits"
+      },
+      {
+        "rule": "javascript.lang.security.detect-child-process",
+        "matches": 45,
+        "group": "Process execution probes"
+      },
+      {
+        "rule": "yaml.github-actions.security.github-actions-mutable-action-tag",
+        "matches": 30,
+        "group": "Action reference pins"
+      },
+      {
+        "rule": "typescript.react.security.react-insecure-request",
+        "matches": 28,
+        "group": "HTTP and WebSocket transport"
+      },
+      {
+        "rule": "javascript.lang.security.html-in-template-string",
+        "matches": 24,
+        "group": "HTML and response sinks"
+      },
+      {
+        "rule": "javascript.lang.security.audit.detect-non-literal-regexp",
+        "matches": 20,
+        "group": "Dynamic regex and ReDoS probes"
+      },
+      {
+        "rule": "generic.secrets.gitleaks.generic-api-key",
+        "matches": 15,
+        "group": "Secret pattern matches"
+      },
+      {
+        "rule": "yaml.github-actions.security.audit.third-party-action-not-pinned-to-commit-sha",
+        "matches": 14,
+        "group": "Action reference pins"
+      },
+      {
+        "rule": "javascript.lang.security.detect-insecure-websocket",
+        "matches": 14,
+        "group": "HTTP and WebSocket transport"
+      },
+      {
+        "rule": "javascript.express.security.audit.express-path-join-resolve-traversal",
+        "matches": 7,
+        "group": "Filesystem and path probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.unsafe-formatstring",
+        "matches": 6,
+        "group": "Format string probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop",
+        "matches": 6,
+        "group": "Prototype property loops"
+      },
+      {
+        "rule": "javascript.lang.security.audit.detect-redos",
+        "matches": 4,
+        "group": "Dynamic regex and ReDoS probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.unsafe-dynamic-method",
+        "matches": 4,
+        "group": "Dynamic method probes"
+      },
+      {
+        "rule": "javascript.browser.security.wildcard-postmessage-configuration",
+        "matches": 4,
+        "group": "Window message bridges"
+      },
+      {
+        "rule": "python.lang.security.audit.insecure-transport.urllib.insecure-request-object",
+        "matches": 3,
+        "group": "HTTP and WebSocket transport"
+      },
+      {
+        "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
+        "matches": 3,
+        "group": "Process execution probes"
+      },
+      {
+        "rule": "generic.secrets.gitleaks.aws-access-token",
+        "matches": 3,
+        "group": "Secret pattern matches"
+      },
+      {
+        "rule": "dockerfile.security.missing-user",
+        "matches": 3,
+        "group": "Container user audits"
+      },
+      {
+        "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
+        "matches": 2,
+        "group": "HTTP and WebSocket transport"
+      },
+      {
+        "rule": "javascript.lang.security.audit.dangerous-spawn-shell",
+        "matches": 2,
+        "group": "Process execution probes"
+      },
+      {
+        "rule": "generic.secrets.gitleaks.private-key",
+        "matches": 2,
+        "group": "Secret pattern matches"
+      },
+      {
+        "rule": "javascript.express.security.audit.xss.direct-response-write",
+        "matches": 2,
+        "group": "HTML and response sinks"
+      },
+      {
+        "rule": "javascript.node-crypto.security.gcm-no-tag-length",
+        "matches": 2,
+        "group": "GCM authentication tags"
+      },
+      {
+        "rule": "javascript.lang.security.audit.hardcoded-hmac-key",
+        "matches": 2,
+        "group": "Deterministic HMAC identifiers"
+      },
+      {
+        "rule": "javascript.lang.security.audit.spawn-shell-true",
+        "matches": 2,
+        "group": "Process execution probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.unknown-value-with-script-tag",
+        "matches": 2,
+        "group": "Script test probes"
+      },
+      {
+        "rule": "javascript.lang.security.audit.incomplete-sanitization",
+        "matches": 2,
+        "group": "Sanitization test probes"
+      },
+      {
+        "rule": "javascript.browser.security.insecure-document-method",
+        "matches": 2,
+        "group": "HTML and response sinks"
+      },
+      {
+        "rule": "javascript.browser.security.insecure-innerhtml",
+        "matches": 2,
+        "group": "HTML and response sinks"
+      },
+      {
+        "rule": "generic.secrets.security.detected-pgp-private-key-block",
+        "matches": 1,
+        "group": "Secret pattern matches"
+      },
+      {
+        "rule": "javascript.express.security.cors-misconfiguration",
+        "matches": 1,
+        "group": "CORS boundaries"
+      },
+      {
+        "rule": "javascript.lang.security.audit.detect-non-literal-require",
+        "matches": 1,
+        "group": "Dynamic skill import"
+      },
+      {
+        "rule": "python.fastapi.security.wildcard-cors",
+        "matches": 1,
+        "group": "CORS boundaries"
+      },
+      {
+        "rule": "html.security.audit.insecure-document-method",
+        "matches": 1,
+        "group": "HTML and response sinks"
+      }
+    ],
+    "confirmedRepairs": [
+      {
+        "boundary": "Report HTML in owner context",
+        "commit": "87a9fa2d",
+        "tests": "29 focused UI tests across 3 files; disposable Chrome baseline XSS marker true, repaired false; styled report/table visible; 0 external page requests or page errors"
+      },
+      {
+        "boundary": "Untrusted window/owned widget privileged proxy",
+        "commit": "87a9fa2d",
+        "tests": "Actual Chrome unrelated frame caused1baseline API call; repaired0. Owned private-state roundtrip passed; owner API returns explicit security hold. Unit variants cover protocol-relative/backslash URLs, wrong/missing capability, foreign origin/source and removed frame."
+      },
+      {
+        "boundary": "Confined file/session paths",
+        "commit": "b979baf0",
+        "tests": "126 focused cases, root-reviewed; no production file access"
+      },
+      {
+        "boundary": "Truncated GCM authentication",
+        "commit": "b9f4ca45",
+        "tests": "171 focused/existing encryption/security/vault cases; synthetic keys/payloads only"
+      },
+      {
+        "boundary": "Mutable entry workflow actions",
+        "commits": [
+          "11d3c41e",
+          "485e35e1"
+        ],
+        "tests": "Semantic YAML checks and targeted action-pin rules;26root mutable refs+4nested refs repaired,3root CodeQL refs already pinned; no workflow run during that local pin validation; later hosted results are separate"
+      },
+      {
+        "boundary": "Optional voice-server auth/default-bind",
+        "status": "source repaired and independently reviewed",
+        "commit": "32c8da4a",
+        "tests": "16 isolated in-process ASGI/VAD cases plus25 fake-fetch/existing voice-config cases; no models or public listeners"
+      },
+      {
+        "boundary": "Dormant widget sandbox compatibility export",
+        "commit": "35f45323",
+        "status": "Uncalled legacy implementation replaced with inert security-hold preview; no current owner exploit asserted",
+        "tests": "Actual component SSR assertion proves no iframe, code evaluation, proxy or CDN path; escaped title and explicit removal preserved"
+      },
+      {
+        "boundary": "Gateway HTTP/WS authentication, proxy credentials and platform webhook verification",
+        "commit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+        "tests": "169 related cases across six files; independent84 across three; real disposable Chrome observed hostile403/authorized204preflights, zero foreign dispatch, valid local/bearer calls and no-Origin cross-site subresource denial",
+        "limits": "Lark inbound503hold; local no-auth trusts local clients, not unreviewed reverse proxies; Messenger app secret cached at connection; no live owner gateway/provider calls"
+      },
+      {
+        "boundary": "Main optional LiveKit private defaults and preflight",
+        "commit": "73edabba6c139fb0c19c53b6b5ea958e5a00ae14",
+        "tests": "113 TypeScript cases;4stdlibPython; actual offline Compose config parser with synthetic inputs; no daemon/models/live media",
+        "limits": "Local signaling/media only; mutable images/Python/model supply chain and live WebRTC/TLS acceptance remain open"
+      },
+      {
+        "boundary": "Legacy optional voice anonymous development issuer/setup",
+        "commit": "281c2daeddab2b46ef6a9ef44587cf42904abaf4",
+        "tests": "4controlled cases, bash syntax and focused lint",
+        "limits": "POST token503/no-store and setup exits before credential reads/SDK/envwrites/install; original production already rejected issuer"
+      }
+    ],
+    "targetedCurrentSubset": {
+      "ui": {
+        "files": 3,
+        "rules": 3,
+        "insecureInnerHtmlOrDocumentMethodMatches": 0,
+        "wildcardPostMessageProbesRetained": 3,
+        "errors": 0,
+        "receipt": "../titan-security-evidence/ui-security-semgrep-after.json"
+      },
+      "gcm": {
+        "files": 2,
+        "tagLengthRuleMatches": 0,
+        "receipt": "../security-static-scan-20261021/titan/gcm-semgrep-after.json"
+      },
+      "nestedActions": {
+        "files": 2,
+        "rules": 2,
+        "beforeMatches": 6,
+        "afterMatches": 0,
+        "errors": 0,
+        "receipt": "../titan-security-evidence/nested-workflow-semgrep-after.json"
+      },
+      "voiceCors": {
+        "files": 3,
+        "rules": 1,
+        "matches": 0,
+        "errors": 0,
+        "receipt": "../titan-security-evidence/voice-cors-semgrep-final.json"
+      },
+      "gatewayAuth": {
+        "sourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+        "files": 4,
+        "rules": 2,
+        "matches": 1,
+        "errors": 0,
+        "retainedRule": "javascript.express.security.cors-misconfiguration",
+        "disposition": "Authenticated remote-dashboard CORS metadata remains an audit probe; actual gateway and native-browser checks verify fail-closed authority/no-auth local boundaries. No suppression or all-transport clean claim.",
+        "json": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/gateway-auth-semgrep-final.json"
+      }
+    },
+    "operationalBoundary": {
+      "sourceFindingsAreNotLiveExploitProof": true,
+      "productionSourceDeploymentPerformedByThisTrack": false,
+      "productionServiceRestartPerformedByThisTrack": false,
+      "privatePatchedNodePreparedButNotActivated": true,
+      "restartAdmissionDrainPrivilegeGatesRemain": true
+    },
+    "rawEvidence": {
+      "results": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/results.json",
+      "locationIndex": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/security-location-index.json",
+      "snapshot": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/snapshot.json",
+      "scannerLog": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/security-static-scan-20261021/titan/scanner.log"
+    },
+    "finalReviewedSourceCommit": "e5a53171d94949cdd75aa1d80928b7fa1b60dcf8",
+    "postPublicationHostedSourceTriage": {
+      "codeqlRun": 39676099237,
+      "results": 19,
+      "high": 15,
+      "medium": 4,
+      "groups": {
+        "cors": 1,
+        "rate": 5,
+        "confined-read": 2,
+        "checkpoint-path": 5,
+        "upload-log": 2,
+        "fixture-race": 2,
+        "content-write": 2
+      },
+      "allSourceFlowGroupsReviewed": true,
+      "alertsDismissed": 0,
+      "newSourceRepairs": [
+        "53fef0c9",
+        "bbc25c13",
+        "fb1fab46"
+      ],
+      "freshBroadSemgrepScan": false,
+      "historicalSemgrepBindingPreserved": true,
+      "receipt": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/hosted-codeql-initial-pr193-triage.json"
+    },
+    "latestSourceScope": "Historical Semgrep snapshot and e5 targeted scanner binding retained; fb1 followup source received focused review/tests and first-hosted CodeQL flow triage, without a repeated broad Semgrep scan."
+  },
+  "operationalScope": {
+    "sourceTrackOnly": true,
+    "productionSourceDeployment": false,
+    "productionServiceRestart": false,
+    "privatePatchedNodeStagedNotActivated": true,
+    "activationBlockedBy": [
+      "admission gate",
+      "drain/in-flight work verification",
+      "legacy cron authorization",
+      "root-admin service privilege boundary"
+    ],
+    "liveMeasurementsAreSeparateDatedOperationalEvidence": true,
+    "separateLivePermissionAndIngressProtectionsApplied": true,
+    "separatelyInventoriedLiveNode": "22.23.2; privatepatchedruntime notactivated; source authoringdidnotperformliveinventory"
+  },
+  "sourceCheckpointCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+  "baseCommitScope": "Historical checkout baseline63d; separately approved README-only main commit a17b28a7 is outside this security freeze; do not infer current PRbase from this field.",
+  "publication": {
+    "pullRequest": 193,
+    "url": "https://github.com/Djtony707/TITAN/pull/193",
+    "draftAtInitialReadback": true,
+    "userApprovedBranchPushAndDraft": true,
+    "initialPublishedHead": "fd133ea61dc36704fd29e18276dd0e8bcec19807",
+    "followupSourceCommit": "fb1fab46205fea709455dc0dec00b6846f16a673",
+    "latestLocalVerificationAtUtc": "2026-10-21T21:33:22.669662+00:00",
+    "hostedFollowupResultsObservedInThisReport": false,
+    "merged": false,
+    "npmReleased": false,
+    "sourceDeployed": false,
+    "separateMainReadmeOnlyCommit": "a17b28a7bad4f092093ad83415743f881321f3af",
+    "separateUiNoticeIncluded": false,
+    "publicationDoesNotAuthorizeMergeReleaseOrDeployment": true
+  }
+}

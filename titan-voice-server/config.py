@@ -26,8 +26,13 @@ class Config:
     VAD_SILENCE_MS: int = int(os.getenv("VAD_SILENCE_MS", "600"))
 
     # Server
-    HOST: str = os.getenv("HOST", "0.0.0.0")
+    HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", "48421"))
+    AUTH_TOKEN: str = os.getenv("TITAN_VOICE_AUTH_TOKEN", "")
+    ALLOWED_ORIGINS: list[str] = [
+        origin.strip() for origin in os.getenv("TITAN_VOICE_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
 
     # Audio
     STT_SAMPLE_RATE: int = 16000

@@ -165,6 +165,11 @@ export const GatewayConfigSchema = z.object({
     host: z.string().default(DEFAULT_GATEWAY_HOST),
     port: z.number().default(DEFAULT_GATEWAY_PORT),
     webPort: z.number().default(DEFAULT_WEB_PORT),
+    /** Exact HTTP(S) browser origins; local no-auth mode never trusts wildcard host patterns. */
+    originAllowlist: z.array(z.string().max(2048).url().refine(value => {
+        try { const url = new URL(value); return !value.includes('*') && ['http:', 'https:'].includes(url.protocol) && url.origin === value; }
+        catch { return false; }
+    }, 'Use an exact HTTP(S) origin without path, credentials or wildcards')).max(64).default([]),
     auth: z.object({
         mode: z.enum(['none', 'token', 'password']).default('token'),
         token: z.string().optional(),
@@ -421,9 +426,9 @@ export const VoiceConfigSchema = z.object({
     /** LiveKit server WebSocket URL */
     livekitUrl: z.string().default('ws://localhost:7880'),
     /** LiveKit API key (matches livekit server config) */
-    livekitApiKey: z.string().default('devkey'),
+    livekitApiKey: z.string().default(''),
     /** LiveKit API secret (matches livekit server config) */
-    livekitApiSecret: z.string().default('secret'),
+    livekitApiSecret: z.string().default(''),
     /** URL of the voice agent (for health checks) */
     agentUrl: z.string().default('http://localhost:8081'),
     /** Default TTS voice name */
@@ -964,34 +969,17 @@ export const TitanConfigSchema = z.object({
              */
             stagingDir: z.string().default('self-mod-staging'),
             /**
-             * v4.10.0-local polish: Opus review gate. Before an approved
-             * self_mod_pr's files land in `target`, send the bundle to
-             * a strong reviewer model (Claude Opus via OpenRouter by
-             * default) for one final correctness + integration check.
-             * Local LLMs write the code; Opus reviews it.
+             * Optional staged-candidate review settings. Runtime application
+             * remains security-held regardless of these settings, any reviewer
+             * verdict or human approval; inspect/export/reject remain available.
              */
             reviewer: z.object({
                 enabled: z.boolean().default(true),
                 /**
-                 * Default: Claude Code CLI with Sonnet 4.5. Routes through
-                 * the `claude` CLI subprocess which uses Tony's MAX plan
-                 * OAuth — so effectively free for this use case (MAX is
-                 * ~$100/month flat with generous caps, not metered).
-                 *
-                 * DIFFERENT FAMILY than Builder (Qwen) = no correlated bugs.
-                 * Claude family is historically strongest at CRITIQUE.
-                 *
-                 * Setup (one-time on TITAN host):
-                 *   npm install -g @anthropic-ai/claude-code
-                 *   claude login   (signs in w/ MAX account; OAuth in ~/.claude/)
-                 *
-                 * Fallback alternatives:
-                 *   'openrouter/qwen/qwen3.6-plus'          (free on OpenRouter but same family as Builder)
-                 *   'openrouter/anthropic/claude-sonnet-4.6' (paid, ~$0.02/review)
-                 *   'openrouter/anthropic/claude-opus-4.6'   (paid, ~$0.15/review)
-                 *
-                 * If `claude` CLI isn't installed on TITAN host, reviewer
-                 * returns 'skipped' and the apply proceeds (fail-open).
+                 * Legacy model default is retained for stored-config compatibility.
+                 * Claude Code execution is prohibited at runtime. This retained legacy
+                 * setting does not enable it. Reviews use only the explicitly configured
+                 * available model without fallback, and cannot unlock runtime application.
                  */
                 model: z.string().default('claude-code/sonnet-4.5'),
                 maxDiffChars: z.number().default(50_000),

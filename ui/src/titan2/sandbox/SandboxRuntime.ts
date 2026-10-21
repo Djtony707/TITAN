@@ -64,15 +64,15 @@ function fetchVendorScripts(): Promise<{ react: string; reactDom: string; babel:
     return vendorScriptsPromise;
 }
 
-function buildSandboxTemplate(vendor: { react: string; reactDom: string; babel: string }): string {
+function buildSandboxTemplate(vendor: { react: string; reactDom: string; babel: string }, capability: string): string {
     // The vendor sources are large (~4.3MB) but they're text and the browser
     // never has to parse them from a remote response — they go straight into
     // the V8 parser. Inlined via plain string concatenation rather than
     // template literals to avoid backtick collisions inside the bundles.
-    const tail = SANDBOX_TEMPLATE_BODY;
+    const tail = SANDBOX_TEMPLATE_BODY.replace('__TITAN_BRIDGE_CAPABILITY__', JSON.stringify(capability));
     return (
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; connect-src \'self\'; style-src \'unsafe-inline\'; img-src blob: data:; font-src data:;">' +
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; connect-src \'none\'; style-src \'unsafe-inline\'; img-src blob: data:; font-src data:;">' +
         '<style>* { box-sizing: border-box; } html, body { margin: 0; padding: 0; height: 100%; } body { background: transparent; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; overflow: hidden; } #root { width: 100%; height: 100%; }</style>' +
         '</head><body>' +
         '<div id="root"><div id="sandbox-loading" style="padding:16px;font-family:monospace;font-size:12px;color:#52525b;"><div>Booting widget…</div></div></div>' +
@@ -89,6 +89,7 @@ const SANDBOX_TEMPLATE_BODY = `
   <script>
     (function() {
       'use strict';
+      const capability = __TITAN_BRIDGE_CAPABILITY__;
 
       // NOTE: Prototype freezing is intentionally disabled.
       // Babel standalone mutates Function.prototype.toString during JSX transform.
@@ -113,11 +114,12 @@ const SANDBOX_TEMPLATE_BODY = `
         const id = ++msgId;
         return new Promise((resolve, reject) => {
           pending.set(id, { resolve, reject });
-          window.parent.postMessage({ type, id, payload }, '*');
+          window.parent.postMessage({ type, id, payload, capability }, '*');
         });
       }
 
       window.addEventListener('message', (e) => {
+        if (e.source !== window.parent || e.data?.capability !== capability) return;
         // Resolve pending iframe promises (parent responses to titan.* calls)
         if (typeof e.data?.id === 'number' && pending.has(e.data.id)) {
           const p = pending.get(e.data.id);
@@ -154,10 +156,8 @@ const SANDBOX_TEMPLATE_BODY = `
           removeWidget: (id) => send('canvas', { action: 'removeWidget', id }),
           listWidgets: () => send('canvas', { action: 'listWidgets' }),
         },
-        // v6.0 Step 8 — Widget-runtime API surface.
-        // titan.tools.run / titan.tools.list — invoke or enumerate any
-        // TITAN tool from inside a widget. Widgets become first-class
-        // agent surfaces (not just dumb UI).
+        // Compatibility methods return a security-hold error. Generated
+        // widgets do not inherit owner tool/API/network permissions.
         tools: {
           list: () => send('api', { endpoint: '/api/tools', body: { method: 'GET' } }),
           run: (name, args) => send('api', { endpoint: '/api/tools/run', body: { name, args: args || {} } }),
@@ -326,11 +326,11 @@ const SANDBOX_TEMPLATE_BODY = `
           } else if (format === 'html') {
             root.innerHTML = source;
           }
-          window.parent.postMessage({ type: 'rendered', id: msgId }, '*');
+          window.parent.postMessage({ type: 'rendered', id: msgId, capability }, '*');
         } catch (err) {
           console.error('[sandbox] render error:', err.name, err.message);
           showError(err.name + ': ' + err.message, err.stack || '');
-          window.parent.postMessage({ type: 'error', id: msgId, error: err.message }, '*');
+          window.parent.postMessage({ type: 'error', id: msgId, error: err.message, capability }, '*');
         }
       }
 
@@ -367,10 +367,10 @@ const SANDBOX_TEMPLATE_BODY = `
           try {
             const result = await runner(...forbiddenGlobals.map(() => undefined), titan);
             Object.keys(originals).forEach(m => console[m] = originals[m]);
-            window.parent.postMessage({ type: 'result', id: msgId, payload: { status: 'success', logs, result: formatValue(result), resultText: formatValue(result) } }, '*');
+            window.parent.postMessage({ type: 'result', id: msgId, capability, payload: { status: 'success', logs, result: formatValue(result), resultText: formatValue(result) } }, '*');
           } catch (err) {
             Object.keys(originals).forEach(m => console[m] = originals[m]);
-            window.parent.postMessage({ type: 'result', id: msgId, payload: { status: 'error', logs, error: { message: err.message, name: err.name, stack: err.stack } } }, '*');
+            window.parent.postMessage({ type: 'result', id: msgId, capability, payload: { status: 'error', logs, error: { message: err.message, name: err.name, stack: err.stack } } }, '*');
           }
         })();
       }
@@ -386,14 +386,18 @@ const SANDBOX_TEMPLATE_BODY = `
         try { return JSON.stringify(v); } catch { return String(v); }
       }
 
-      window.parent.postMessage({ type: 'ready' }, '*');
+      window.parent.postMessage({ type: 'ready', capability }, '*');
     })();
   </script>
 </body>
 </html>`;
 
+export const WIDGET_PROXY_SECURITY_HOLD = 'Widget network, owner API and canvas operations are disabled by a security hold pending explicit scoped grants. Static rendering and private state remain available.';
+
 export class SandboxRuntime {
   private iframe: HTMLIFrameElement | null = null;
+  private readonly capability = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+  private readonly state = new Map<string, unknown>();
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
   private msgId = 0;
   private ready = false;
@@ -422,7 +426,7 @@ export class SandboxRuntime {
             // longer in the document we drop the srcdoc assignment — the
             // destroy() path has already torn the listener down.
             if (!this.iframe || !document.contains(iframe)) return;
-            iframe.srcdoc = buildSandboxTemplate(vendor);
+            iframe.srcdoc = buildSandboxTemplate(vendor, this.capability);
         })
         .catch(err => {
             // Surface the failure as a `ready`-like error so the parent
@@ -436,9 +440,11 @@ export class SandboxRuntime {
         });
 
     const handler = (e: MessageEvent) => {
-      // sandbox="allow-scripts" (no allow-same-origin) gives the iframe an opaque origin.
-      // e.source and iframe.contentWindow are different WindowProxy objects, so === fails.
-      // We validate by message shape instead.
+      // An opaque origin is expected, but is shared by unrelated sandboxed
+      // frames. Require both the exact live WindowProxy and its capability.
+      if (this.iframe !== iframe || !document.contains(iframe)
+          || e.source !== iframe.contentWindow || e.origin !== 'null'
+          || e.data?.capability !== this.capability) return;
       const raw = e.data as any;
       if (!raw || typeof raw !== 'object') return;
       if (!raw.type || typeof raw.type !== 'string') return;
@@ -490,110 +496,27 @@ export class SandboxRuntime {
       if (type === 'log') {
         this.onLog?.(payload?.args || []);
         result = { ok: true };
-      } else if (type === 'fetch') {
-        const { url, options } = payload || {};
-        const token = localStorage.getItem('titan-token');
-        const headers: Record<string, string> = { ...(options?.headers || {}) };
-        // Only inject auth for same-origin/relative requests so third-party
-        // URLs cannot steal the token.
-        let injectAuth = false;
-        try {
-          if (typeof url === 'string') {
-            if (url.startsWith('/')) injectAuth = true;
-            else {
-              const u = new URL(url, window.location.href);
-              injectAuth = u.origin === window.location.origin;
-            }
-          }
-        } catch { /* invalid URL — skip auth injection */ }
-        if (token && injectAuth) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch(url, { ...options, headers });
-        const text = await res.text();
-        let json = undefined;
-        try { json = JSON.parse(text); } catch {}
-        result = { ok: res.ok, status: res.status, text, json };
-      } else if (type === 'api') {
-        const { endpoint, body: rawBody } = payload || {};
-        const token = localStorage.getItem('titan-token');
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-        // Forgiving call shape:
-        //   titan.api.call(endpoint, { content: '...' })                          ← preferred
-        //   titan.api.call(endpoint, { method: 'POST', body: { ... }, headers })  ← fetch-style (legacy/LLM habit)
-        //   titan.api.call(endpoint, { method: 'GET' })                           ← read-only call
-        // Detect the fetch-style envelope (it has at least one of method/body/headers
-        // AND none of the keys the gateway expects on its body schemas).
-        let method = 'POST';
-        let requestBody: unknown = rawBody;
-        if (
-          rawBody &&
-          typeof rawBody === 'object' &&
-          ('method' in rawBody || 'headers' in rawBody) &&
-          !('content' in rawBody) && !('message' in rawBody) && !('action' in rawBody)
-        ) {
-          const env = rawBody as { method?: string; body?: unknown; headers?: Record<string, string> };
-          if (typeof env.method === 'string') method = env.method.toUpperCase();
-          if (env.headers) Object.assign(headers, env.headers);
-          requestBody = env.body;
-        }
-
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-
-        // Normalize: widgets may pass '/api/message' or '/message' —
-        // ensure exactly one '/api' prefix so we don't 404 on '/api/api/...'.
-        let path = typeof endpoint === 'string' ? endpoint : '';
-        if (path.startsWith('/api/')) {
-          /* already prefixed, keep as-is */
-        } else if (path.startsWith('/')) {
-          path = '/api' + path;
-        } else {
-          path = '/api/' + path;
-        }
-
-        const fetchInit: RequestInit = { method, headers };
-        if (method !== 'GET' && method !== 'HEAD' && requestBody !== undefined) {
-          fetchInit.body = typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody);
-        }
-        const res = await fetch(path, fetchInit);
-        const text = await res.text();
-        let json: unknown = undefined;
-        try { json = JSON.parse(text); } catch { /* not JSON, ignore */ }
-
-        // Result shape contract:
-        //   { status, body, ok, ...flat }
-        // - `status` and `body` are the canonical fields (older docs).
-        // - `ok` is true for 2xx (matches Fetch API ergonomics).
-        // - When the body is a JSON object, its top-level fields are spread onto
-        //   the result so widgets that read `r.content` / `r.text` / `r.messages`
-        //   directly (a very common LLM-generated pattern) work correctly. Spread
-        //   happens BEFORE we set `status`/`body`/`ok` so the canonical fields
-        //   always win on collision.
-        const flat = (json && typeof json === 'object' && !Array.isArray(json))
-          ? (json as Record<string, unknown>)
-          : {};
-        result = { ...flat, status: res.status, body: json ?? text, ok: res.ok };
+      } else if (type === 'fetch' || type === 'api' || type === 'canvas') {
+        // Frame identity is not owner authorization. Do not read ambient auth,
+        // dispatch requests, or call mutation handlers without scoped grants.
+        throw new Error(WIDGET_PROXY_SECURITY_HOLD);
       } else if (type === 'state') {
         const { action, key, value } = payload || {};
-        if (action === 'get') {
-          const raw = localStorage.getItem('titan:sandbox:' + key);
-          result = raw ? JSON.parse(raw) : undefined;
-        } else if (action === 'set') {
-          localStorage.setItem('titan:sandbox:' + key, JSON.stringify(value));
+        if (typeof key !== 'string' || key.length > 256) throw new Error('Invalid private state key');
+        if (action === 'get') result = this.state.get(key);
+        else if (action === 'set') {
+          this.state.set(key, value);
           result = { ok: true };
-        }
-      } else if (type === 'canvas') {
-        if (this.messageHandler) {
-          result = await this.messageHandler({ type, payload });
-        } else {
-          result = { ok: false, error: 'Canvas operations not configured' };
-        }
+        } else throw new Error('Invalid private state action');
       } else if (type === 'import') {
         result = { ok: false, error: 'Dynamic imports not supported in sandbox' };
       }
 
-      iframe.contentWindow.postMessage({ type: 'result', id, payload: result }, '*');
+      if (this.iframe !== iframe || !document.contains(iframe)) return;
+      iframe.contentWindow.postMessage({ type: 'result', id, payload: result, capability: this.capability }, '*');
     } catch (err: any) {
-      iframe.contentWindow.postMessage({ type: 'error', id, error: err.message || String(err) }, '*');
+      if (this.iframe !== iframe || !document.contains(iframe)) return;
+      iframe.contentWindow.postMessage({ type: 'error', id, error: err.message || String(err), capability: this.capability }, '*');
     }
   }
 
@@ -615,7 +538,7 @@ export class SandboxRuntime {
       const id = ++this.msgId;
       this.pending.set(id, { resolve, reject });
       this.whenReady().then(() => {
-        this.iframe?.contentWindow?.postMessage({ type, id, payload }, '*');
+        this.iframe?.contentWindow?.postMessage({ type, id, payload, capability: this.capability }, '*');
       }).catch(reject);
     });
   }
@@ -643,6 +566,7 @@ export class SandboxRuntime {
     }
     this.iframe = null;
     this.pending.clear();
+    this.state.clear();
     this.readyQueue = [];
     this.ready = false;
     this.messageHandler = undefined;

@@ -7,6 +7,16 @@ import logger from '../utils/logger.js';
 
 const COMPONENT = 'Encryption';
 const ALGORITHM = 'aes-256-gcm';
+const IV_LEN = 16;
+const AUTH_TAG_LEN = 16;
+
+function decodeHex(value: unknown, byteLength?: number): Buffer {
+    if (typeof value !== 'string' || !/^(?:[0-9a-f]{2})*$/i.test(value)
+        || (byteLength !== undefined && value.length !== byteLength * 2)) {
+        throw new Error('Invalid encryption payload encoding.');
+    }
+    return Buffer.from(value, 'hex');
+}
 
 export interface EncryptedPayload {
     iv: string;
@@ -28,13 +38,13 @@ export function generateKey(): Buffer {
  */
 export function encrypt(text: string, key: Buffer | string): EncryptedPayload {
     try {
-        const keyBuffer = typeof key === 'string' ? Buffer.from(key, 'hex') : key;
-        if (keyBuffer.length !== 32) {
+        const keyBuffer = typeof key === 'string' ? decodeHex(key, 32) : key;
+        if (!Buffer.isBuffer(keyBuffer) || keyBuffer.length !== 32) {
             throw new Error('Encryption key must be exactly 32 bytes (256 bits).');
         }
 
-        const iv = randomBytes(16);
-        const cipher = createCipheriv(ALGORITHM, keyBuffer, iv);
+        const iv = randomBytes(IV_LEN);
+        const cipher = createCipheriv(ALGORITHM, keyBuffer, iv, { authTagLength: AUTH_TAG_LEN });
 
         let encrypted = cipher.update(text, 'utf8', 'hex');
         encrypted += cipher.final('hex');
@@ -59,18 +69,18 @@ export function encrypt(text: string, key: Buffer | string): EncryptedPayload {
  */
 export function decrypt(payload: EncryptedPayload, key: Buffer | string): string {
     try {
-        const keyBuffer = typeof key === 'string' ? Buffer.from(key, 'hex') : key;
-        if (keyBuffer.length !== 32) {
+        const keyBuffer = typeof key === 'string' ? decodeHex(key, 32) : key;
+        if (!Buffer.isBuffer(keyBuffer) || keyBuffer.length !== 32) {
             throw new Error('Decryption key must be exactly 32 bytes (256 bits).');
         }
 
-        const decipher = createDecipheriv(ALGORITHM, keyBuffer, Buffer.from(payload.iv, 'hex'));
-        decipher.setAuthTag(Buffer.from(payload.authTag, 'hex'));
+        const iv = decodeHex(payload.iv, IV_LEN);
+        const authTag = decodeHex(payload.authTag, AUTH_TAG_LEN);
+        const data = decodeHex(payload.data);
+        const decipher = createDecipheriv(ALGORITHM, keyBuffer, iv, { authTagLength: AUTH_TAG_LEN });
+        decipher.setAuthTag(authTag);
 
-        let decrypted = decipher.update(payload.data, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-
-        return decrypted;
+        return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
     } catch (e: unknown) {
         logger.error(COMPONENT, `Decryption failed: ${e instanceof Error ? e.message : String(e)}`);
         throw new Error('Failed to decrypt session data. Invalid key or corrupted payload.');

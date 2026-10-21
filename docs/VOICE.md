@@ -17,7 +17,7 @@ All components self-hosted. No cloud APIs required.
 - Docker with Compose v2
 - 4GB+ RAM for voice services
 - GPU optional (CUDA for faster-whisper acceleration)
-- Node.js 20+ (for TITAN gateway)
+- Node.js 22.23.4+, 24.22.1+, or 26.12.1+ (supported stable lines, for TITAN gateway)
 
 ## Quick Start
 

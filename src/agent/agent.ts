@@ -34,6 +34,7 @@ import { assembleSystemPrompt, type PromptMode } from './systemPromptParts.js';
 import { getOptimizedPromptBlock } from '../skills/builtin/self_improve.js';
 import { analyzeForDelegation, executeDelegationPlan } from './orchestrator.js';
 import { queueWakeup } from './agentWakeup.js';
+import { assertExternalAgentAllowed } from '../security/externalAgentPolicy.js';
 import { createIssue, requestHireApproval } from './commandPost.js';
 import { spawnSubAgent, SUB_AGENT_TEMPLATES } from './subAgent.js';
 import { logTrajectory } from './trajectoryLogger.js';
@@ -413,6 +414,7 @@ function ensureDelegateTaskRegistered(): void {
             const cwd = args.cwd as string | undefined;
 
             if (adapterType) {
+                assertExternalAgentAllowed(adapterType);
                 // ── External adapter path ────────────────────────
                 const issue = createIssue({
                     title: `[External: ${adapterType}] ${task.slice(0, 70)}`,

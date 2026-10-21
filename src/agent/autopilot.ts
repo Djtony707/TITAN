@@ -63,6 +63,7 @@ export interface AutopilotRunOptions {
 // ─── State ──────────────────────────────────────────────────────
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
+let scheduleGeneration = 0;
 let isRunning = false;
 let lastRun: AutopilotRun | null = null;
 let runtimeDryRun: boolean | undefined;
@@ -1021,6 +1022,8 @@ async function runCompileAutopilot(config: TitanConfig, startTime: number, dryRu
 }
 
 export function initAutopilot(config: TitanConfig): void {
+    // Retire the old handle and queued callbacks even if the new config is disabled/invalid.
+    stopAutopilot();
     if (!config.autopilot.enabled) {
         logger.debug(COMPONENT, 'Autopilot disabled in config');
         return;
@@ -1032,7 +1035,10 @@ export function initAutopilot(config: TitanConfig): void {
         return;
     }
 
+    const generation = scheduleGeneration;
     cronTask = cron.schedule(schedule, () => {
+        // Scheduled admission only: stopping does not drain a run that already started.
+        if (generation !== scheduleGeneration || !cronTask || !loadConfig().autopilot.enabled) return;
         runAutopilotNow().catch(e => {
             const msg = (e as Error).message;
             // "already in progress" is expected when a long goal overruns
@@ -1049,9 +1055,11 @@ export function initAutopilot(config: TitanConfig): void {
 }
 
 export function stopAutopilot(): void {
-    if (cronTask) {
-        cronTask.stop();
-        cronTask = null;
+    scheduleGeneration++;
+    const task = cronTask;
+    cronTask = null;
+    if (task) {
+        task.stop();
         logger.info(COMPONENT, 'Autopilot stopped');
     }
 }

@@ -10,21 +10,43 @@
 #   TITAN_HOST        - IP/hostname of the TITAN gateway (default: localhost)
 #   TITAN_PORT        - TITAN gateway port (default: 48420)
 #   TTS_VOICE         - Kokoro TTS voice (default: af_heart)
+#   LIVEKIT_API_KEY   - Private operator key, 8-128 URL-safe characters (required)
+#   LIVEKIT_API_SECRET- Separate random secret, 32-256 URL-safe characters (required)
+# Published ports and advertised media IP are local-client-only. See titan-voice-agent/README.md.
 #
-# Distributed setup (Pi 5 + GPU PC):
+# Local voice with a separate LLM host (Pi 5 + GPU PC):
 #   Pi 5 runs:  TITAN gateway + this voice stack (lightweight containers)
 #   GPU PC runs: Ollama with large models
 #   Set OLLAMA_HOST to the GPU PC's IP address
 
 services:
+  voice-credentials-check:
+    build: ./titan-voice-agent
+    command: ["python", "-I", "-B", "validate_livekit.py"]
+    network_mode: none
+    read_only: true
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set a private LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set a private LIVEKIT_API_SECRET}
+    restart: "no"
+
   livekit-server:
     image: livekit/livekit-server
     container_name: livekit-server
-    command: --dev --bind 0.0.0.0
+    # Listen inside the private container; publish only to host loopback below.
+    command: ["--bind", "0.0.0.0", "--udp-port", "7882", "--node-ip", "127.0.0.1"]
+    environment:
+      LIVEKIT_KEYS: '"${LIVEKIT_API_KEY:?Set a private LIVEKIT_API_KEY}": "${LIVEKIT_API_SECRET:?Set a private LIVEKIT_API_SECRET}"'
+      LIVEKIT_CONFIG: |
+        rtc:
+          use_external_ip: false
     ports:
-      - "7880:7880"   # HTTP / WebSocket signaling
-      - "7881:7881"   # RTC TCP
-      - "7882:7882/udp"  # RTC UDP (WebRTC media)
+      - "127.0.0.1:7880:7880"   # HTTP / WebSocket signaling
+      - "127.0.0.1:7881:7881"   # RTC TCP
+      - "127.0.0.1:7882:7882/udp"  # RTC UDP (WebRTC media)
+    depends_on:
+      voice-credentials-check:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:7880"]
       interval: 5s
@@ -36,13 +58,16 @@ services:
     image: fedirz/faster-whisper-server:latest-cpu
     container_name: faster-whisper
     ports:
-      - "8300:8000"
+      - "127.0.0.1:8300:8000"
     environment:
       - WHISPER__MODEL=Systran/faster-whisper-base
       - WHISPER__COMPUTE_TYPE=int8
       - HF_HUB_OFFLINE=0
     volumes:
       - whisper-cache:/root/.cache
+    depends_on:
+      voice-credentials-check:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -55,7 +80,10 @@ services:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     container_name: kokoro-tts
     ports:
-      - "8880:8880"
+      - "127.0.0.1:8880:8880"
+    depends_on:
+      voice-credentials-check:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8880/v1/models"]
       interval: 10s
@@ -71,9 +99,9 @@ services:
     container_name: titan-voice-agent
     network_mode: host
     environment:
-      - LIVEKIT_URL=ws://localhost:7880
-      - LIVEKIT_API_KEY=devkey
-      - LIVEKIT_API_SECRET=secret
+      - LIVEKIT_URL=ws://127.0.0.1:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:?Set a private LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:?Set a private LIVEKIT_API_SECRET}
       - OLLAMA_BASE_URL=http://${OLLAMA_HOST:-host.docker.internal}:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:0.6b}
       - STT_BASE_URL=http://localhost:8300/v1

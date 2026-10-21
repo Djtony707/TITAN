@@ -2,7 +2,10 @@
  * TITAN — Config Schema Tests
  * Tests sub-schemas NOT covered by core.test.ts
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     TitanConfigSchema,
     MeshConfigSchema,
@@ -39,6 +42,20 @@ describe('MeshConfigSchema', () => {
 });
 
 describe('AgentConfigSchema', () => {
+    let configHome: string;
+    beforeEach(() => {
+        configHome = mkdtempSync(join(tmpdir(), 'titan-config-defaults-'));
+        vi.stubEnv('TITAN_HOME', configHome);
+        vi.stubEnv('TITAN_STUB_PROVIDER', '');
+        for (const key of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']) {
+            vi.stubEnv(key, '');
+        }
+    });
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        rmSync(configHome, { recursive: true, force: true });
+    });
+
     it('should have default model aliases including cloud tier', () => {
         const agent = AgentConfigSchema.parse({});
         expect(agent.modelAliases).toEqual({
@@ -53,6 +70,13 @@ describe('AgentConfigSchema', () => {
 
     it('should default thinkingMode to medium', () => {
         expect(AgentConfigSchema.parse({}).thinkingMode).toBe('medium');
+    });
+
+    it('should use provider-aware aliases when a provider key is present', () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-fixture-key');
+        const agent = AgentConfigSchema.parse({});
+        expect(agent.model).toBe('anthropic/claude-sonnet-4-20250514');
+        expect(agent.modelAliases.fast).toBe('anthropic/claude-haiku-4-20250514');
     });
 
     it('should reject invalid thinkingMode', () => {

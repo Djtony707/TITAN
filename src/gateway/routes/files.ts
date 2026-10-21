@@ -5,14 +5,21 @@
  */
 
 import { Router } from 'express';
+import type { Response } from 'express';
 import { homedir } from 'os';
-import { join, dirname, resolve } from 'path';
-import fs from 'fs';
+import { join, relative, resolve } from 'path';
 import logger from '../../utils/logger.js';
 import { loadConfig } from '../../config/config.js';
 import { listEditedFiles, readEditedFileContent } from '../../agent/editedFiles.js';
+import { runConfinedFileOperation } from '../../security/confinedFiles.js';
+import type { FileOperationResult } from '../../security/confinedFiles.js';
 
 const COMPONENT = 'FilesRouter';
+
+function uploadSessionId(value: unknown): string | null {
+  if (value === undefined) return 'default';
+  return typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) ? value : null;
+}
 
 function getFileRoots(): Array<{ label: string; path: string }> {
   const cfg = loadConfig();
@@ -27,6 +34,9 @@ function getFileRoots(): Array<{ label: string; path: string }> {
 }
 
 function validateFilePath(reqPath: string, rootParam?: string): { valid: boolean; fullPath: string; basePath: string; error?: string } {
+  if (typeof reqPath !== 'string' || reqPath.includes('\0') || (rootParam !== undefined && typeof rootParam !== 'string')) {
+    return { valid: false, fullPath: '', basePath: '', error: 'Invalid file path' };
+  }
   const roots = getFileRoots();
   if (roots.length === 0) return { valid: false, fullPath: '', basePath: '', error: 'No file roots configured' };
 
@@ -57,9 +67,17 @@ function validateFilePath(reqPath: string, rootParam?: string): { valid: boolean
   return { valid: true, fullPath, basePath };
 }
 
+function failed(res: Response, result: FileOperationResult): boolean {
+  if (result.ok) return false;
+  res.status(result.status ?? 500).json({ error: result.error ?? 'File operation failed' });
+  return true;
+}
+
 export function createFilesRouter(): Router {
   const router = Router();
-  const UPLOADS_DIR = join(homedir(), '.titan', 'uploads');
+  // Anchor uploads at the trusted home, so an uploads/session symlink is never a trusted root.
+  const uploadHome = homedir();
+  const uploadPath = (session: string, name?: string) => join('.titan', 'uploads', session, ...(name ? [name] : []));
 
   router.get('/edited', (req, res) => {
     const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '200'), 10) || 200, 1), 1000);
@@ -67,8 +85,8 @@ export function createFilesRouter(): Router {
   });
 
   router.get('/content', (req, res) => {
-    const filePath = req.query.path as string | undefined;
-    if (!filePath) { res.status(400).json({ error: 'path parameter required' }); return; }
+    const filePath = req.query.path;
+    if (typeof filePath !== 'string' || !filePath) { res.status(400).json({ error: 'path parameter required' }); return; }
     const result = readEditedFileContent(filePath);
     if ('error' in result) { res.status(404).json(result); return; }
     res.json(result);
@@ -80,195 +98,103 @@ export function createFilesRouter(): Router {
 
   router.get('/', (req, res) => {
     const reqPath = (req.query.path as string) || '';
-    const rootParam = req.query.root as string | undefined;
-    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, rootParam);
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, req.query.root as string | undefined);
     if (!valid) { res.status(403).json({ error }); return; }
-
-    try {
-      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'Path not found' }); return; }
-      const stat = fs.statSync(fullPath);
-      if (!stat.isDirectory()) { res.status(400).json({ error: 'Not a directory. Use /api/files/read for files.' }); return; }
-
-      const entries = fs.readdirSync(fullPath).map(name => {
-        try {
-          const entryPath = join(fullPath, name);
-          const entryStat = fs.statSync(entryPath);
-          return {
-            name,
-            path: reqPath ? `${reqPath}/${name}` : name,
-            type: entryStat.isDirectory() ? 'directory' as const : 'file' as const,
-            size: entryStat.size,
-            modified: entryStat.mtime.toISOString(),
-          };
-        } catch {
-          return { name, path: reqPath ? `${reqPath}/${name}` : name, type: 'file' as const, size: 0, modified: '' };
-        }
-      });
-      entries.sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-      res.json({ path: reqPath || '/', entries, basePath });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(basePath, { operation: 'list', path: relative(basePath, fullPath) });
+    if (failed(res, result)) return;
+    const entries = (result.entries ?? []).map(entry => ({ ...entry, path: reqPath ? `${reqPath}/${entry.name}` : entry.name }));
+    entries.sort((a, b) => a.type !== b.type ? (a.type === 'directory' ? -1 : 1) : a.name.localeCompare(b.name));
+    res.json({ path: reqPath || '/', entries, basePath });
   });
 
   router.get('/read', (req, res) => {
     const reqPath = req.query.path as string;
     if (!reqPath) { res.status(400).json({ error: 'path parameter required' }); return; }
-    const rootParam = req.query.root as string | undefined;
-    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, req.query.root as string | undefined);
     if (!valid) { res.status(403).json({ error }); return; }
-
-    try {
-      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'File not found' }); return; }
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
-
-      const MAX_SIZE = 1024 * 1024;
-      if (stat.size > MAX_SIZE) {
-        const content = fs.readFileSync(fullPath, 'utf-8').slice(0, MAX_SIZE);
-        res.json({ path: reqPath, content, truncated: true, size: stat.size, modified: stat.mtime.toISOString() });
-        return;
-      }
-
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      res.json({ path: reqPath, content, truncated: false, size: stat.size, modified: stat.mtime.toISOString() });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(basePath, { operation: 'read', path: relative(basePath, fullPath) });
+    if (failed(res, result)) return;
+    res.json({ path: reqPath, content: Buffer.from(result.dataBase64!, 'base64').toString('utf8'), truncated: result.truncated, size: result.size, modified: result.modified });
   });
 
   router.post('/write', (req, res) => {
-    const { path: reqPath, content, root: rootParam } = req.body as { path?: string; content?: string; root?: string };
+    const { path: reqPath, content, root: rootParam } = (req.body ?? {}) as { path?: string; content?: string; root?: string };
     if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
-    if (content === undefined) { res.status(400).json({ error: 'content required' }); return; }
-
-    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    if (typeof content !== 'string') { res.status(400).json({ error: 'string content required' }); return; }
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, rootParam);
     if (!valid) { res.status(403).json({ error }); return; }
-
-    try {
-      const dir = dirname(fullPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(fullPath, content, 'utf-8');
-      const stat = fs.statSync(fullPath);
-      res.json({ success: true, path: reqPath, size: stat.size, modified: stat.mtime.toISOString() });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(basePath, { operation: 'write', path: relative(basePath, fullPath), dataBase64: Buffer.from(content).toString('base64') });
+    if (failed(res, result)) return;
+    res.json({ success: true, path: reqPath, size: result.size, modified: result.modified });
   });
 
   router.post('/mkdir', (req, res) => {
-    const { path: reqPath, root: rootParam } = req.body as { path?: string; root?: string };
+    const { path: reqPath, root: rootParam } = (req.body ?? {}) as { path?: string; root?: string };
     if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
-
-    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, rootParam);
     if (!valid) { res.status(403).json({ error }); return; }
-
-    try {
-      if (fs.existsSync(fullPath)) { res.status(409).json({ error: 'Path already exists' }); return; }
-      fs.mkdirSync(fullPath, { recursive: true });
-      res.json({ success: true, path: reqPath });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(basePath, { operation: 'mkdir', path: relative(basePath, fullPath) });
+    if (failed(res, result)) return;
+    res.json({ success: true, path: reqPath });
   });
 
   router.post('/rename', (req, res) => {
-    const { oldPath, newPath, root: rootParam } = req.body as { oldPath?: string; newPath?: string; root?: string };
+    const { oldPath, newPath, root: rootParam } = (req.body ?? {}) as { oldPath?: string; newPath?: string; root?: string };
     if (!oldPath || !newPath) { res.status(400).json({ error: 'oldPath and newPath required' }); return; }
-
     const oldValidation = validateFilePath(oldPath, rootParam);
     const newValidation = validateFilePath(newPath, rootParam);
     if (!oldValidation.valid) { res.status(403).json({ error: oldValidation.error }); return; }
     if (!newValidation.valid) { res.status(403).json({ error: newValidation.error }); return; }
-
-    try {
-      if (!fs.existsSync(oldValidation.fullPath)) { res.status(404).json({ error: 'Source not found' }); return; }
-      if (fs.existsSync(newValidation.fullPath)) { res.status(409).json({ error: 'Destination already exists' }); return; }
-      fs.renameSync(oldValidation.fullPath, newValidation.fullPath);
-      res.json({ success: true, oldPath, newPath });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(oldValidation.basePath, { operation: 'rename', path: relative(oldValidation.basePath, oldValidation.fullPath), newPath: relative(newValidation.basePath, newValidation.fullPath) });
+    if (failed(res, result)) return;
+    res.json({ success: true, oldPath, newPath });
   });
 
   router.delete('/delete', (req, res) => {
     const reqPath = req.query.path as string;
-    const rootParam = req.query.root as string | undefined;
     if (!reqPath) { res.status(400).json({ error: 'path required' }); return; }
-
-    const { valid, fullPath, error } = validateFilePath(reqPath, rootParam);
+    const { valid, fullPath, basePath, error } = validateFilePath(reqPath, req.query.root as string | undefined);
     if (!valid) { res.status(403).json({ error }); return; }
-
-    try {
-      if (!fs.existsSync(fullPath)) { res.status(404).json({ error: 'Not found' }); return; }
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory()) {
-        const contents = fs.readdirSync(fullPath);
-        if (contents.length > 0) { res.status(400).json({ error: 'Directory not empty. Delete contents first.' }); return; }
-        fs.rmdirSync(fullPath);
-      } else {
-        fs.unlinkSync(fullPath);
-      }
-      res.json({ success: true, path: reqPath });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const result = runConfinedFileOperation(basePath, { operation: 'delete', path: relative(basePath, fullPath) });
+    if (failed(res, result)) return;
+    res.json({ success: true, path: reqPath });
   });
 
-  // Upload
   router.post('/upload', (req, res) => {
-    try {
-      const fileName = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
-      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
-      const sessionId = (req.headers['x-session-id'] as string) || 'default';
-
-      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
-      if (!body || body.length === 0) { res.status(400).json({ error: 'Empty upload body' }); return; }
-
-      const sessionDir = join(UPLOADS_DIR, sessionId);
-      if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-
-      const filePath = join(sessionDir, safeName);
-      fs.writeFileSync(filePath, body);
-
-      const stat = fs.statSync(filePath);
-      logger.info(COMPONENT, `File uploaded: ${safeName} (${(stat.size / 1024).toFixed(0)}KB) \u2192 session ${sessionId}`);
-
-      res.json({ ok: true, file: { name: safeName, path: filePath, size: stat.size, session: sessionId, uploadedAt: new Date().toISOString() } });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const fileName = req.headers['x-filename'] ?? `upload-${Date.now()}`;
+    if (typeof fileName !== 'string') { res.status(400).json({ error: 'Invalid filename' }); return; }
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+    if (!safeName || safeName === '.' || safeName === '..') { res.status(400).json({ error: 'Invalid filename' }); return; }
+    const sessionId = uploadSessionId(req.headers['x-session-id']);
+    if (sessionId === null) { res.status(400).json({ error: 'Invalid upload session' }); return; }
+    if (req.body === undefined) { res.status(400).json({ error: 'Empty upload body' }); return; }
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body));
+    if (body.length === 0) { res.status(400).json({ error: 'Empty upload body' }); return; }
+    const path = uploadPath(sessionId, safeName);
+    const result = runConfinedFileOperation(uploadHome, { operation: 'write', path, dataBase64: body.toString('base64') });
+    if (failed(res, result)) return;
+    logger.info(COMPONENT, `File uploaded: ${safeName} (${(result.size! / 1024).toFixed(0)}KB) → session ${sessionId}`);
+    res.json({ ok: true, file: { name: safeName, path: join(uploadHome, path), size: result.size, session: sessionId, uploadedAt: new Date().toISOString() } });
   });
 
   router.get('/uploads', (req, res) => {
-    try {
-      const sessionId = (req.query.session as string) || 'default';
-      const sessionDir = join(UPLOADS_DIR, sessionId);
-      if (!fs.existsSync(sessionDir)) { res.json({ files: [] }); return; }
-
-      const files = fs.readdirSync(sessionDir).map(name => {
-        const stat = fs.statSync(join(sessionDir, name));
-        return { name, size: stat.size, modified: stat.mtime.toISOString() };
-      });
-      res.json({ files, session: sessionId });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const sessionId = uploadSessionId(req.query.session);
+    if (sessionId === null) { res.status(400).json({ error: 'Invalid upload session' }); return; }
+    const result = runConfinedFileOperation(uploadHome, { operation: 'list', path: uploadPath(sessionId) });
+    if (!result.ok && result.status === 404) { res.json({ files: [], session: sessionId }); return; }
+    if (failed(res, result)) return;
+    const files = (result.entries ?? []).filter(entry => entry.type === 'file').map(({ name, size, modified }) => ({ name, size, modified }));
+    res.json({ files, session: sessionId });
   });
 
   router.delete('/uploads/:name', (req, res) => {
-    try {
-      const sessionId = (req.query.session as string) || 'default';
-      const filePath = join(UPLOADS_DIR, sessionId, req.params.name.replace(/[^a-zA-Z0-9._-]/g, '_'));
-      if (!filePath.startsWith(UPLOADS_DIR)) { res.status(403).json({ error: 'Access denied' }); return; }
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
+    const sessionId = uploadSessionId(req.query.session);
+    if (sessionId === null) { res.status(400).json({ error: 'Invalid upload session' }); return; }
+    const name = req.params.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    if (!name || name === '.' || name === '..' || name.length > 100) { res.status(400).json({ error: 'Invalid filename' }); return; }
+    const result = runConfinedFileOperation(uploadHome, { operation: 'delete', path: uploadPath(sessionId, name) });
+    if (!result.ok && result.status !== 404 && failed(res, result)) return;
+    res.json({ ok: true });
   });
 
   return router;

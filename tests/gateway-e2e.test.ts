@@ -7,7 +7,13 @@
  * - Auth middleware behavior
  * - routeMessage callback mechanics
  */
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
+import { createHmac } from 'crypto';
+import { MessengerChannel } from '../src/channels/messenger.js';
+import { LineChannel } from '../src/channels/line.js';
+import { WebSocket } from 'ws';
+import * as helpers from '../src/utils/helpers.js';
+import type * as TwilioVoice from '../src/channels/twilio-voice.js';
 
 const { TEST_PORT } = vi.hoisted(() => ({ TEST_PORT: 59430 }));
 const BASE = `http://127.0.0.1:${TEST_PORT}`;
@@ -24,7 +30,12 @@ function makeMockConfig(overrides: Record<string, unknown> = {}) {
     return {
         agent: { model: 'anthropic/claude-sonnet-4-20250514', maxTokens: 8192, temperature: 0.7, modelAliases: { fast: 'openai/gpt-4o-mini' }, costOptimization: { smartRouting: false } },
         providers: { anthropic: { apiKey: 'test' }, openai: { apiKey: 'test' }, google: { apiKey: 'test' }, ollama: { baseUrl: 'http://localhost:11434' } },
-        channels: { discord: { enabled: false, dmPolicy: 'pairing' }, telegram: { enabled: false, dmPolicy: 'pairing' }, slack: { enabled: false, dmPolicy: 'pairing' }, webchat: { enabled: false, dmPolicy: 'pairing' } },
+        channels: {
+            discord: { enabled: false, dmPolicy: 'pairing' }, telegram: { enabled: false, dmPolicy: 'pairing' }, slack: { enabled: false, dmPolicy: 'pairing' }, webchat: { enabled: false, dmPolicy: 'pairing' },
+            messenger: { enabled: true, appSecret: 'synthetic-messenger-signing-secret', voiceReplies: { enabled: false } },
+            line: { enabled: false, apiKey: 'synthetic-line-signing-secret' },
+            twilio: { enabled: true, authToken: 'synthetic-twilio-signing-secret', publicHost: `http://127.0.0.1:${TEST_PORT}` },
+        },
         gateway: { port: TEST_PORT, host: '127.0.0.1', webPort: 59431, auth: { mode: 'none' as const }, ...overrides },
         security: { sandboxMode: 'host', deniedTools: [], allowedTools: [], commandTimeout: 30000, networkAllowlist: ['*'], shield: { enabled: true, mode: 'strict' }, maxConcurrentTasks: 5 },
         mesh: { enabled: false, secret: '', staticPeers: [], mdns: false, tailscale: false },
@@ -32,6 +43,7 @@ function makeMockConfig(overrides: Record<string, unknown> = {}) {
         logging: { level: 'info', file: true },
         autopilot: { enabled: false, schedule: '0 2 * * *', model: 'anthropic/claude-haiku', maxTokensPerRun: 4000, maxToolRounds: 5, reportChannel: 'cli', maxRunHistory: 30, skipIfEmpty: true },
         autonomy: { mode: 'supervised' },
+        mcp: { server: { enabled: true, maxOutputSize: 1024 } },
     };
 }
 
@@ -45,6 +57,22 @@ vi.mock('../src/config/config.js', () => ({
 }));
 
 const mockRouteMessage = vi.hoisted(() => vi.fn());
+const mockSidecar = vi.hoisted(() => ({
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+    status: vi.fn().mockResolvedValue({ running: false }),
+}));
+vi.mock('../src/addons/paperclipSidecar.js', () => ({
+    startPaperclip: mockSidecar.start,
+    stopPaperclip: mockSidecar.stop,
+    getPaperclipStatus: mockSidecar.status,
+}));
+const mockPhone = vi.hoisted(() => ({ endCall: vi.fn(), synthesize: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../src/channels/twilio-voice.js', async importOriginal => ({
+    ...await importOriginal<typeof TwilioVoice>(),
+    endCall: mockPhone.endCall,
+    synthesizeAndCache: mockPhone.synthesize,
+}));
 vi.mock('../src/agent/multiAgent.js', () => ({
     routeMessage: mockRouteMessage,
     initAgents: vi.fn(),
@@ -194,11 +222,14 @@ function defaultRouteResponse(overrides: Record<string, unknown> = {}) {
 
 describe('Gateway E2E — /api/message lifecycle', () => {
     beforeAll(async () => {
+        // A webhook fixture must never inherit a real page or telephony credential.
+        vi.stubEnv('FB_APP_SECRET', ''); vi.stubEnv('FB_PAGE_ACCESS_TOKEN', ''); vi.stubEnv('FB_PAGE_ID', ''); vi.stubEnv('TWILIO_AUTH_TOKEN', '');
         await startGateway({ port: TEST_PORT, host: '127.0.0.1', skipUsableCheck: true });
     }, 30000);
 
     afterAll(async () => {
         await stopGateway();
+        vi.unstubAllEnvs();
     });
 
     beforeEach(() => {
@@ -508,6 +539,169 @@ describe('Gateway E2E — /api/message lifecycle', () => {
     // ── Auth middleware ──────────────────────────────────────────────
 
     describe('Auth middleware', () => {
+        const guardedRoutes = [
+            ['GET', '/api/config'],
+            ['GET', '/v1/models'],
+            ['POST', '/api/paperclip/start'],
+            ['GET', '/paperclip/api/private'],
+            ['DELETE', '/ollama/api/delete'],
+            ['GET', '/metrics'],
+            ['POST', '/mcp'],
+        ] as const;
+
+        it.each([
+            { mode: 'token' },
+            { mode: 'token', token: 'configured-token' },
+            { mode: 'password' },
+            { mode: 'unexpected' },
+        ])('denies protected routes before dispatch for auth state %j', async (auth) => {
+            const cfg = makeMockConfig({ auth });
+            mockLoadConfig.mockReturnValue(cfg);
+            mockSidecar.start.mockClear();
+            mockSidecar.stop.mockClear();
+            mockSidecar.status.mockClear();
+            const nativeFetch = globalThis.fetch;
+            const upstream = vi.fn();
+            const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+                const url = new URL(input instanceof Request ? input.url : String(input));
+                if (url.port === '3100' || url.port === '11434') {
+                    upstream(input, init);
+                    return Response.json({ fixture: true });
+                }
+                return nativeFetch(input, init);
+            });
+            try {
+                for (const [method, path] of guardedRoutes) {
+                    const response = await fetch(`${BASE}${path}`, {
+                        method,
+                        headers: { Authorization: 'Bearer wrong', 'Content-Type': 'application/json' },
+                        ...(method === 'POST' || method === 'DELETE' ? { body: '{}' } : {}),
+                    });
+                    expect(response.status, `${method} ${path}`).toBe(401);
+                }
+                expect(upstream).not.toHaveBeenCalled();
+                expect(mockSidecar.start).not.toHaveBeenCalled();
+                expect(mockSidecar.stop).not.toHaveBeenCalled();
+                expect(mockSidecar.status).not.toHaveBeenCalled();
+                expect(mockRouteMessage).not.toHaveBeenCalled();
+            } finally { fetchSpy.mockRestore(); }
+        });
+
+        it('preserves valid token proxy calls without forwarding gateway credentials or following redirects', async () => {
+            mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } }));
+            const nativeFetch = globalThis.fetch;
+            const calls: Array<{ url: URL; init?: RequestInit }> = [];
+            const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+                const url = new URL(input instanceof Request ? input.url : String(input));
+                if (url.port === '3100' || url.port === '11434') {
+                    calls.push({ url, init });
+                    return Response.json({ fixture: true });
+                }
+                return nativeFetch(input, init);
+            });
+            try {
+                expect((await fetch(`${BASE}/paperclip/api/private?token=configured-token&view=summary`, {
+                    headers: { Authorization: 'Bearer configured-token', Cookie: 'owner-session=synthetic', 'Proxy-Authorization': 'Bearer synthetic-proxy', Referer: `${BASE}/paperclip/?token=configured-token`, 'X-Original-URL': '/paperclip/?token=configured-token' },
+                })).status).toBe(200);
+                expect(calls).toHaveLength(1);
+                const forwarded = new Headers(calls[0].init?.headers);
+                expect(forwarded.has('authorization')).toBe(false);
+                expect(forwarded.has('cookie')).toBe(false);
+                expect(forwarded.has('proxy-authorization')).toBe(false);
+                expect(forwarded.has('referer')).toBe(false);
+                expect(forwarded.has('x-original-url')).toBe(false);
+                expect(calls[0].url.searchParams.has('token')).toBe(false);
+                expect(calls[0].url.searchParams.get('view')).toBe('summary');
+                expect(calls[0].init?.redirect).toBe('error');
+                expect((await fetch(`${BASE}/ollama/api/delete`, { method: 'DELETE', headers: { Authorization: 'Bearer configured-token', 'Content-Type': 'application/json' }, body: '{"model":"fixture"}' })).status).toBe(200);
+                expect(calls).toHaveLength(2);
+                expect(new Headers(calls[1].init?.headers).has('authorization')).toBe(false);
+            } finally { fetchSpy.mockRestore(); }
+        });
+
+        it('rejects malformed password bodies and byte-length mismatches while preserving Unicode login sessions', async () => {
+            mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'password', password: 'é' } }));
+            for (const password of ['a', {}, ['é']]) {
+                const response = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+                expect(response.status).toBe(401);
+            }
+            const login = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'é' }) });
+            expect(login.status).toBe(200);
+            expect(login.headers.get('cache-control')).toBe('no-store');
+            const body = await login.json() as { token: string };
+            expect(body.token).not.toBe('é');
+            expect((await fetch(`${BASE}/api/config`, { headers: { Authorization: `Bearer ${body.token}` } })).status).toBe(200);
+        });
+
+        it('verifies exact Messenger and LINE bytes before dispatch, while preserving legitimate signed events', async () => {
+            mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } }));
+            const messenger = vi.spyOn(MessengerChannel.prototype, 'handleWebhook').mockImplementation(() => {});
+            const line = vi.spyOn(LineChannel.prototype, 'handleWebhookEvent').mockImplementation(() => {});
+            try {
+                const raw = '{ "object": "page", "entry": [] }\n';
+                const signature = 'sha256=' + createHmac('sha256', 'synthetic-messenger-signing-secret').update(raw).digest('hex');
+                expect((await fetch(`${BASE}/api/messenger/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw })).status).toBe(403);
+                expect(messenger).not.toHaveBeenCalled();
+                expect((await fetch(`${BASE}/api/messenger/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': signature }, body: raw })).status).toBe(200);
+                expect(messenger).toHaveBeenCalledTimes(1);
+                const lineRaw = '{ "events": [] }\n';
+                const lineSignature = createHmac('sha256', 'synthetic-line-signing-secret').update(lineRaw).digest('base64');
+                expect((await fetch(`${BASE}/api/channels/line/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Line-Signature': lineSignature }, body: '{"events":[]}' })).status).toBe(403);
+                expect(line).not.toHaveBeenCalled();
+                expect((await fetch(`${BASE}/api/channels/line/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Line-Signature': lineSignature }, body: lineRaw })).status).toBe(200);
+                expect(line).toHaveBeenCalledTimes(1);
+                const cfg = makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } });
+                cfg.channels.line.apiKey = ''; mockLoadConfig.mockReturnValue(cfg);
+                expect((await fetch(`${BASE}/api/channels/line/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Line-Signature': lineSignature }, body: lineRaw })).status).toBe(403);
+                expect(line).toHaveBeenCalledTimes(1);
+            } finally { messenger.mockRestore(); line.mockRestore(); }
+        });
+
+        it('requires configured Twilio signatures for status and poll callbacks, before call or TTS work', async () => {
+            const cfg = makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } });
+            mockLoadConfig.mockReturnValue(cfg); mockPhone.endCall.mockClear(); mockPhone.synthesize.mockClear();
+            const raw = 'CallSid=synthetic-call&CallStatus=completed';
+            const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+            expect((await fetch(`${BASE}/api/twilio/status-callback`, { method: 'POST', headers, body: raw })).status).toBe(403);
+            expect((await fetch(`${BASE}/api/twilio/voice-poll?jobId=synthetic`, { method: 'GET' })).status).toBe(403);
+            expect(mockPhone.endCall).not.toHaveBeenCalled(); expect(mockPhone.synthesize).not.toHaveBeenCalled();
+            const signature = createHmac('sha1', 'synthetic-twilio-signing-secret').update(`${BASE}/api/twilio/status-callbackCallSidsynthetic-callCallStatuscompleted`).digest('base64');
+            expect((await fetch(`${BASE}/api/twilio/status-callback`, { method: 'POST', headers: { ...headers, 'X-Twilio-Signature': signature }, body: raw })).status).toBe(200);
+            expect(mockPhone.endCall).toHaveBeenCalledExactlyOnceWith('synthetic-call');
+            cfg.channels.twilio.authToken = '';
+            expect((await fetch(`${BASE}/api/twilio/status-callback`, { method: 'POST', headers: { ...headers, 'X-Twilio-Signature': signature }, body: raw })).status).toBe(403);
+            expect(mockPhone.endCall).toHaveBeenCalledTimes(1);
+        });
+
+        it('preserves signed Twilio GET and POST poll requests with the complete URL and POST fields', async () => {
+            mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } }));
+            mockPhone.synthesize.mockClear();
+            const url = `${BASE}/api/twilio/voice-poll?jobId=synthetic`;
+            for (const method of ['GET', 'POST']) {
+                const concat = url + (method === 'POST' ? 'CallSidsynthetic-call' : '');
+                const signature = createHmac('sha1', 'synthetic-twilio-signing-secret').update(concat).digest('base64');
+                const response = await fetch(url, { method, headers: { 'X-Twilio-Signature': signature, 'Content-Type': 'application/x-www-form-urlencoded' }, ...(method === 'POST' ? { body: 'CallSid=synthetic-call' } : {}) });
+                expect(response.status).toBe(200);
+            }
+            expect(mockPhone.synthesize).toHaveBeenCalledTimes(2);
+        });
+
+        it('uses the gateway credential for native MCP and denies its anonymous SSE stream', async () => {
+            mockLoadConfig.mockReturnValue(makeMockConfig({ auth: { mode: 'token', token: 'configured-token' } }));
+            const invalid = await fetch(`${BASE}/mcp`, { headers: { Accept: 'text/event-stream' }, signal: AbortSignal.timeout(1000) });
+            expect(invalid.status).toBe(401); await invalid.body?.cancel();
+            const valid = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { Authorization: 'Bearer configured-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) });
+            expect(valid.status).toBe(200);
+            expect(await valid.json()).toMatchObject({ jsonrpc: '2.0', id: 1, result: {} });
+        });
+
+        it('rejects hostile local no-auth WebSocket origins before installing message handlers', async () => {
+            const ws = new WebSocket(BASE.replace('http:', 'ws:'), { origin: 'https://attacker.trycloudflare.com' });
+            const code = await new Promise<number>((resolve, reject) => { ws.once('close', resolve); ws.once('error', reject); });
+            expect(code).toBe(1008);
+            expect(mockRouteMessage).not.toHaveBeenCalled();
+        });
+
         it('should pass through when auth mode is none', async () => {
             const res = await fetch(`${BASE}/api/message`, {
                 method: 'POST',
@@ -672,5 +866,80 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             expect(body.error).toMatch(/timed out/i);
             expect(r.headers.get('x-eval-suite')).toBe('safety');
         }, 15000);
+    });
+});
+
+describe('Gateway login rate-limit authority', () => {
+    const loginPort = TEST_PORT + 4;
+    const loginBase = `http://127.0.0.1:${loginPort}`;
+    const credential = 'synthetic-rate-boundary-token';
+
+    beforeEach(async () => {
+        vi.stubEnv('FB_APP_SECRET', ''); vi.stubEnv('FB_PAGE_ACCESS_TOKEN', ''); vi.stubEnv('FB_PAGE_ID', ''); vi.stubEnv('TWILIO_AUTH_TOKEN', '');
+        mockLoadConfig.mockReset();
+        mockLoadConfig.mockReturnValue(makeMockConfig({ port: loginPort, auth: { mode: 'token', token: credential } }));
+        mockRouteMessage.mockReset();
+        mockRouteMessage.mockResolvedValue(defaultRouteResponse());
+        await startGateway({ port: loginPort, host: '127.0.0.1', skipUsableCheck: true });
+    }, 30000);
+
+    afterEach(async () => {
+        await stopGateway();
+        vi.unstubAllEnvs();
+    });
+
+    it('keeps one login-attempt quota when the same peer forges forwarding headers', async () => {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            const response = await fetch(`${loginBase}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `198.51.100.${attempt + 1}`, Forwarded: `for=198.51.100.${attempt + 1}`, 'X-Real-IP': `198.51.100.${attempt + 1}` },
+                body: JSON.stringify({ password: 'incorrect fixture credential' }),
+            });
+            expect(response.status).toBe(attempt < 5 ? 401 : 429);
+            if (attempt === 5) expect(Number(response.headers.get('retry-after'))).toBeGreaterThan(0);
+            await response.body?.cancel();
+        }
+        expect(mockRouteMessage).not.toHaveBeenCalled();
+    });
+
+    it('returns a usable token from token-mode login and preserves the native bearer contract', async () => {
+        const writes = vi.spyOn(helpers, 'atomicWriteJsonFile');
+        try {
+            const invalid = await fetch(`${loginBase}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'wrong fixture credential' }),
+            });
+            expect(invalid.status).toBe(401);
+            expect(await invalid.json()).not.toHaveProperty('token');
+            const response = await fetch(`${loginBase}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: credential }),
+            });
+            expect(response.status).toBe(200);
+            expect(response.headers.get('cache-control')).toBe('no-store');
+            const login = await response.json() as { token: string };
+            const signedIn = await fetch(`${loginBase}/api/config`, { headers: { Authorization: `Bearer ${login.token}` } });
+            expect(signedIn.status).toBe(200);
+            await signedIn.body?.cancel();
+            const native = await fetch(`${loginBase}/api/config`, { headers: { Authorization: `Bearer ${credential}` } });
+            expect(native.status).toBe(200);
+            await native.body?.cancel();
+            expect(writes.mock.calls.some(([path]) => path.endsWith('auth-tokens.json'))).toBe(false);
+        } finally { writes.mockRestore(); }
+    });
+
+    it('does not spend the login quota on authenticated message requests', async () => {
+        for (let request = 0; request < 6; request++) {
+            const response = await fetch(`${loginBase}/api/message`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
+                body: JSON.stringify({ content: 'isolated route quota fixture' }),
+            });
+            expect(response.status).toBe(200);
+            await response.json();
+        }
+        const login = await fetch(`${loginBase}/api/login`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: credential }),
+        });
+        expect(login.status).toBe(200);
+        expect((await login.json() as { token?: string }).token).toEqual(expect.any(String));
+        expect(mockRouteMessage).toHaveBeenCalledTimes(6);
     });
 });

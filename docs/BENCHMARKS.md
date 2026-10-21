@@ -8,7 +8,7 @@ Performance characteristics of TITAN (`titan-agent`) measured on typical develop
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| Node.js | >= 20 | Latest LTS |
+| Node.js | 22.23.4+ / 24.22.1+ / 26.12.1+ | Supported stable security release lines |
 | Disk | ~150MB (npm package) | 500MB+ (with local models) |
 | RAM | 512MB | 2GB+ |
 | GPU | Not required | NVIDIA GPU for LoRA fine-tuning |

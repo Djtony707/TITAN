@@ -31,12 +31,13 @@ import { buildSmartContext } from '../agent/contextManager.js';
 import { shouldBackOff } from './rateLimitTracker.js';
 // v6.0.1 — Model-agnostic default picker.
 import { getDefaultModelId } from './defaultModel.js';
+import { assertExternalAgentAllowed, isClaudeCodeAgent } from '../security/externalAgentPolicy.js';
 
 const COMPONENT = 'Router';
 const INTERNAL_ONLY_PROVIDERS = new Set(['stub']);
 
 function isPublicRouterProvider(name: string): boolean {
-    return !INTERNAL_ONLY_PROVIDERS.has(name);
+    return !INTERNAL_ONLY_PROVIDERS.has(name) && !isClaudeCodeAgent(name);
 }
 
 /** Build failover order from all registered providers, sorted by capability priority */
@@ -56,7 +57,6 @@ function getFailoverOrder(excludeProvider: string): string[] {
         'cohere-v2': 40,
         fireworks: 35,
         perplexity: 30,
-        'claude-code': 15,
         ollama: 10,
     };
     initProviders();
@@ -215,6 +215,7 @@ export function resolveModel(modelId: string): { provider: LLMProvider; model: s
 
     // Normalize provider name (e.g. "grok" → "xai", "local" → "ollama")
     const providerName = normalizeProvider(rawProviderName);
+    assertExternalAgentAllowed(providerName);
     const provider = providers.get(providerName);
     if (!provider) {
         throw new Error(`Unknown provider: ${providerName}. Available: ${Array.from(providers.keys()).join(', ')}`);
@@ -237,17 +238,18 @@ export function tryResolveModel(modelId: string): { provider: LLMProvider; model
 /** List of provider names known to this gateway (for "did you mean" suggestions). */
 export function getKnownProviderNames(): string[] {
     initProviders();
-    return Array.from(providers.keys()).sort();
+    return Array.from(providers.keys()).filter(name => !isClaudeCodeAgent(name)).sort();
 }
 
 /** Check if a model is allowed by the allowlist. Empty list = all allowed. */
 export function isModelAllowed(modelId: string): boolean {
     const config = loadConfig();
+    const resolved = resolveAlias(modelId);
+    if (isClaudeCodeAgent(LLMProvider.parseModelId(resolved).provider)) return false;
     const allowedModels = config.agent.allowedModels;
     if (!allowedModels || allowedModels.length === 0) return true;
 
     // Resolve alias first
-    const resolved = resolveAlias(modelId);
 
     for (const pattern of allowedModels) {
         if (pattern === resolved) return true;

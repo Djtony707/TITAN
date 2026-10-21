@@ -9,6 +9,11 @@ import logging
 import datetime
 import aiohttp
 from dotenv import load_dotenv
+from validate_livekit import validate_livekit_credentials
+
+# Refuse missing/shared credentials before importing SDK/model code or opening a listener.
+load_dotenv(dotenv_path=".env.local")
+validate_livekit_credentials()
 
 from livekit.agents import (
     AgentServer,
@@ -24,7 +29,6 @@ from livekit.plugins import silero, openai
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from kokoro_tts import KokoroTTS
 
-load_dotenv(dotenv_path=".env.local")
 logger = logging.getLogger("titan-voice-agent")
 
 TITAN_API_URL = os.getenv("TITAN_API_URL", "http://localhost:48420/api/message")
@@ -37,7 +41,7 @@ STT_ENGINE = os.getenv("STT_ENGINE", "faster-whisper")  # faster-whisper | nemot
 TTS_VOICE = os.getenv("TTS_VOICE", "af_heart")
 KOKORO_BASE_URL = os.getenv("KOKORO_BASE_URL", "http://localhost:8880/v1")
 
-server = AgentServer()
+server = AgentServer(host="127.0.0.1")
 
 # Persistent TITAN session ID across turns
 _titan_session_id = None

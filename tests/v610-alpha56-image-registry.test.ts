@@ -40,7 +40,8 @@
  *
  * These tests pin every step of the pipeline.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { JSDOM } from 'jsdom';
 import {
     registerImage,
     resolveImageReferences,
@@ -136,9 +137,16 @@ describe('v6.1.0-alpha.56 — LRU bound on registry size', () => {
 
 describe('v6.1.0-alpha.56 — sanitizer recognizes tdi:// as untrusted-with-fallback', () => {
     it('htmlSanitize rewrites unresolved tdi:// to the brass placeholder', async () => {
-        const { wrapHtmlForViewer } = await import('../ui/src/pages/mission/htmlSanitize.js');
-        const out = wrapHtmlForViewer('<img src="tdi://orphan1234567890" alt="lost image">');
-        expect(out).toMatch(/titan-img-missing/);
-        expect(out).toMatch(/lost image/);
+        const dom = new JSDOM('');
+        vi.stubGlobal('window', dom.window);
+        try {
+            const { wrapHtmlForViewer } = await import('../ui/src/pages/mission/htmlSanitize.js');
+            const out = wrapHtmlForViewer('<img src="tdi://orphan1234567890" alt="lost image">');
+            const parsed = new JSDOM(out);
+            try {
+                expect(parsed.window.document.querySelector('figure.titan-img-missing figcaption')?.textContent).toBe('lost image');
+                expect(parsed.window.document.querySelector('img')).toBeNull();
+            } finally { parsed.window.close(); }
+        } finally { dom.window.close(); vi.unstubAllGlobals(); }
     });
 });

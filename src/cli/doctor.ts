@@ -12,6 +12,7 @@ import { TITAN_HOME, TITAN_CONFIG_PATH, TITAN_DB_PATH, TITAN_WORKSPACE, TITAN_VE
 import { healthCheckAll } from '../providers/router.js';
 import { auditSecurity } from '../security/sandbox.js';
 import { getStallStats } from '../agent/stallDetector.js';
+import { assertSecureNodeRuntime, NODE_RUNTIME_RANGE } from '../utils/nodeRuntime.js';
 import {
     fixMissingTitanHome,
     fixMissingConfig,
@@ -56,6 +57,7 @@ export interface DoctorReport {
 }
 
 export async function runDoctor(options?: { fix?: boolean; json?: boolean; dryRun?: boolean }): Promise<DoctorReport> {
+    assertSecureNodeRuntime();
     const autoFix = options?.fix ?? false;
     const dryRun = options?.dryRun ?? false;
     const jsonOutput = options?.json ?? false;
@@ -70,11 +72,10 @@ export async function runDoctor(options?: { fix?: boolean; json?: boolean; dryRu
 
     // 1. Node.js version
     const nodeVersion = process.versions.node;
-    const [major] = nodeVersion.split('.').map(Number);
     checks.push({
         name: 'Node.js version',
-        status: major >= 20 ? 'pass' : major >= 18 ? 'warn' : 'fail',
-        message: `v${nodeVersion} ${major >= 20 ? '(recommended)' : major >= 18 ? '(minimum, upgrade recommended)' : '(too old, need >= 20)'}`,
+        status: 'pass',
+        message: `v${nodeVersion} (supported stable runtime: ${NODE_RUNTIME_RANGE})`,
     });
 
     // 2. TITAN home directory

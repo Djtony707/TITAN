@@ -131,7 +131,7 @@ function loadStore(): DataStore {
   return store;
 }
 
-function saveStore(): void {
+function saveStore(throwOnError = false): void {
   if (!store || isShuttingDown) return;
   mkdirIfNotExists(TITAN_HOME);
   try {
@@ -142,6 +142,7 @@ function saveStore(): void {
   } catch (e) {
     dirty = true;
     logger.error(COMPONENT, `Failed to save data: ${(e as Error).message}`);
+    if (throwOnError) throw new Error('Could not persist memory store', { cause: e });
   }
 }
 
@@ -152,6 +153,14 @@ export function debouncedSave(): void {
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveStore, 1000);
   saveTimeout.unref();
+}
+
+/** Persist an acknowledged control change before returning success to its caller. */
+export function saveMemoryNow(): void {
+  if (isShuttingDown) throw new Error('Memory store is closed');
+  loadStore();
+  if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
+  saveStore(true);
 }
 
 /** Initialize the memory system */

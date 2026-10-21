@@ -20,6 +20,7 @@ import { addIssueComment, updateIssue, startRun, endRun, updateAgentStatus } fro
 import { loadConfig } from '../config/config.js';
 import logger from '../utils/logger.js';
 import { emitAgentEvent } from './agentEvents.js';
+import { assertExternalAgentAllowed } from '../security/externalAgentPolicy.js';
 
 const COMPONENT = 'AgentWakeup';
 
@@ -40,7 +41,7 @@ export interface WakeupRequest {
     templateName: string;
     model?: string;
     mode: WakeupMode;          // 'sub-agent' = spawnSubAgent, 'multi-agent' = routeMessage, 'external' = adapter
-    adapterType?: string;      // For external mode: 'claude-code', 'codex', 'bash'
+    adapterType?: string;      // For external mode: 'codex', 'bash'; Claude Code is prohibited.
     cwd?: string;              // Working directory for external adapters
     status: WakeupStatus;
     createdAt: number;
@@ -139,6 +140,7 @@ export function queueWakeup(opts: {
     adapterType?: string;
     cwd?: string;
 }): WakeupRequest {
+    if (opts.mode === 'external') assertExternalAgentAllowed(opts.adapterType || 'bash');
     const request: WakeupRequest = {
         id: `wake_${uuid().slice(0, 8)}`,
         issueId: opts.issueId,
@@ -304,6 +306,7 @@ async function handleWakeup(wakeupRequestId: string): Promise<void> {
                 telemetry: { actionId: 'noop', promptTokens: 0, completionTokens: 0, costUsd: 0, measured: false, providerCalls: 0, returnedCalls: 0, exit: 'completed' as const },
             };
         } else if (req.mode === 'external') {
+            assertExternalAgentAllowed(req.adapterType || 'bash');
             // ── External adapter path: spawn CLI process ──
             const adapter = getAdapter(req.adapterType || 'bash');
             if (!adapter) throw new Error(`Unknown adapter type: ${req.adapterType}`);

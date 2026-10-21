@@ -62,6 +62,18 @@ describe('AgentWakeup', () => {
     });
 
     describe('queueWakeup', () => {
+        it.each(['claude', 'claude-code', 'claude_code', 'Claude Code'])('rejects prohibited external adapter %s before queue/event dispatch', (adapterType) => {
+            initWakeupSystem();
+            expect(() => queueWakeup({
+                issueId: 'forbidden', issueIdentifier: 'FORBIDDEN', agentId: `adapter:${adapterType}`,
+                agentName: adapterType, parentSessionId: null, task: 'fixture', templateName: '',
+                mode: 'external', adapterType,
+            })).toThrow(/disabled by TITAN standing policy/);
+            expect(getAgentInbox(`adapter:${adapterType}`)).toEqual([]);
+            expect(mockTitanEvents.emit).not.toHaveBeenCalled();
+            expect(mockSpawnSubAgent).not.toHaveBeenCalled();
+        });
+
         it('should create a wakeup request with queued status', () => {
             initWakeupSystem();
             const req = queueWakeup({

@@ -35,6 +35,7 @@ This file lists the open-source software used by TITAN, organized by category.
 | Vite | MIT | https://vite.dev/ | Build tool |
 | Tailwind CSS 4 | MIT | https://tailwindcss.com/ | CSS framework |
 | React Router v7 | MIT | https://reactrouter.com/ | Client-side routing |
+| DOMPurify 3.4.17 | MPL-2.0 OR Apache-2.0 | https://github.com/cure53/DOMPurify | Inert report HTML sanitization |
 | react-markdown | MIT | https://github.com/remarkjs/react-markdown | Markdown rendering |
 | remark-gfm | MIT | https://github.com/remarkjs/remark-gfm | GitHub-flavored Markdown |
 | rehype-highlight | MIT | https://github.com/rehypejs/rehype-highlight | Syntax highlighting |

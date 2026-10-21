@@ -58,7 +58,7 @@ export interface DriverSubtaskState {
      * v4.10.0-local (post-deploy): per-subtask attempt cap. Separate
      * from goal-level `maxRetries` so a single bad subtask can't burn
      * the whole goal's budget. Default 5 = matches the 5-tier fallback
-     * ladder (primary + 4 fallbacks including claude-code MAX tier).
+     * ladder (primary + 4 configured, policy-permitted fallbacks).
      */
     maxAttempts?: number;
     /** Last error message (if any) — used by fallbackChain to pick next strategy. */

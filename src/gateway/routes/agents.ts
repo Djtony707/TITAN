@@ -91,36 +91,47 @@ export function createLifecycleRouter(): Router {
 
   router.post('/autopilot/toggle', (req, res) => {
     try {
+      const body = req.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || (Object.hasOwn(body, 'enabled') && typeof body.enabled !== 'boolean')
+        || (Object.hasOwn(body, 'dryRun') && typeof body.dryRun !== 'boolean')) {
+        res.status(400).json({ error: 'Request body must be an object; enabled and dryRun must be booleans when supplied.' });
+        return;
+      }
       const cfg = loadConfig();
-      const enable = typeof req.body.enabled === 'boolean' ? req.body.enabled : !cfg.autopilot.enabled;
-      const dryRun = typeof req.body.dryRun === 'boolean' ? req.body.dryRun : undefined;
+      const enable = Object.hasOwn(body, 'enabled') ? body.enabled : !cfg.autopilot.enabled;
+      const dryRun = Object.hasOwn(body, 'dryRun') ? body.dryRun : undefined;
 
-      cfg.autopilot.enabled = enable;
-      if (typeof dryRun === 'boolean') {
-        (cfg.autopilot as Record<string, unknown>).dryRun = dryRun;
-        setAutopilotDryRun(dryRun);
-      }
+      const nextConfig = {
+        ...cfg,
+        autopilot: { ...cfg.autopilot, enabled: enable, ...(dryRun === undefined ? {} : { dryRun }) },
+      };
 
-      // v6.0.2 — Persist the toggle to disk. Pre-fix this endpoint
-      // mutated `cfg` (a reference to the in-memory cache) but never
-      // called `saveConfig`, so the change vanished on the next
-      // service restart. Result: a user could explicitly disable
-      // autopilot, restart the service for any reason, and find the
-      // daemon firing again on its 2am cron because the on-disk
-      // `autopilot.enabled: true` was reloaded as authoritative.
-      try {
-        saveConfig(cfg);
-      } catch (err) {
-        // Persistence failure is loud — the in-memory toggle still
-        // takes effect for this process, but the user needs to know
-        // it won't survive a restart.
-        logger.warn(COMPONENT, `Autopilot toggle saved in memory but FAILED to persist: ${(err as Error).message}`);
-      }
-
-      if (enable) {
-        initAutopilot(cfg);
-      } else {
+      // A failed disable must still stop this process. Do not mutate the
+      // cached enable/dry-run settings before an attempted enable is durable.
+      if (!enable) {
+        cfg.autopilot.enabled = false;
         stopAutopilot();
+      }
+
+      try {
+        saveConfig(nextConfig);
+      } catch (err) {
+        logger.warn(COMPONENT, `Autopilot toggle FAILED to persist: ${(err as Error).message}`);
+        res.status(500).json({
+          error: enable
+            ? 'Autopilot settings could not be saved. Existing runtime settings were kept.'
+            : 'Autopilot is stopped in this process, but the disable could not be saved. It may resume after restart; fix configuration storage and retry.',
+          enabled: cfg.autopilot.enabled,
+          dryRun: getAutopilotStatus().dryRun,
+          persisted: false,
+        });
+        return;
+      }
+
+      if (typeof dryRun === 'boolean') setAutopilotDryRun(dryRun);
+      if (enable) {
+        initAutopilot(nextConfig);
       }
       const status = getAutopilotStatus();
       res.json({ enabled: enable, dryRun: status.dryRun, persisted: true });

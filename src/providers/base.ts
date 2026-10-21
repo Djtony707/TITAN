@@ -2,6 +2,7 @@
  * TITAN LLM Provider — Base Interface
  * All LLM providers implement this interface for a unified API.
  */
+import { CLAUDE_CODE_EXECUTION_ALLOWED } from '../security/externalAgentPolicy.js';
 
 /** A single message in a conversation */
 export interface ChatMessage {
@@ -75,30 +76,23 @@ export interface ChatOptions {
      * individual providers accept flags without bloating the shared type.
      * Each provider documents which keys it reads.
      *
-     * Known keys today:
-     *   - `allowClaudeCode: boolean` — required true for ClaudeCodeProvider
-     *     to accept a call. All autonomous paths (autopilot, goal driver,
-     *     specialists, self-mod) leave it unset; Claude Code rejects
-     *     anything without it. Only user-initiated UI/API chat should set
-     *     it, after the user explicitly picks a claude-code model.
+     * Legacy `allowClaudeCode` values are ignored: standing runtime policy
+     * prohibits Claude Code execution, including user-initiated requests.
      */
     providerOptions?: Record<string, unknown>;
 
     /**
-     * @deprecated v4.12 — use `providerOptions.allowClaudeCode` instead.
-     * Read as a fallback for one release cycle; will be removed in v5.0.
+     * @deprecated Retained for stored caller compatibility only. Always ignored;
+     * neither this flag nor providerOptions can enable Claude Code execution.
      */
     allowClaudeCode?: boolean;
 }
 
 /**
- * Read the Claude Code opt-in flag from either the new providerOptions
- * bag (preferred) or the deprecated top-level allowClaudeCode field.
+ * Compatibility helper: no caller option can override the standing prohibition.
  */
-export function isClaudeCodeAllowed(options: ChatOptions): boolean {
-    const po = options.providerOptions;
-    if (po && typeof po === 'object' && po.allowClaudeCode === true) return true;
-    return options.allowClaudeCode === true;
+export function isClaudeCodeAllowed(_options: ChatOptions): boolean {
+    return CLAUDE_CODE_EXECUTION_ALLOWED;
 }
 
 /** v6.5 — generous total-time backstop for a streaming fetch so a stalled

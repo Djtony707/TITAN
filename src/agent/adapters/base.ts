@@ -63,7 +63,7 @@ export interface AdapterStatus {
 
 /** Interface all external adapters must implement */
 export interface ExternalAdapter {
-    /** Unique adapter type identifier, e.g. "claude-code", "codex", "bash" */
+    /** Unique adapter type identifier, e.g. "codex", "bash" */
     readonly type: string;
     /** Human-readable display name */
     readonly displayName: string;

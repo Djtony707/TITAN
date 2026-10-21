@@ -260,8 +260,7 @@ function freshDriverState(goal: Goal): DriverState {
             kind: kinds[sub.id] ?? 'analysis',
             attempts: 0,
             // v4.10.0-local (post-deploy): 5 = full ladder depth
-            // (primary + 4 fallbacks). Ensures the claude-code MAX-plan
-            // tier is reachable before the subtask gives up. Goal-level
+            // (primary + 4 configured fallbacks). Goal-level
             // maxRetries: 10 remains as the cross-subtask backstop.
             maxAttempts: 5,
             artifacts: [],
@@ -603,7 +602,7 @@ async function tickDelegating(goal: Goal, state: DriverState): Promise<void> {
 
     // Pass the per-subtask cap — NOT goal-level maxRetries — to
     // nextFallback. The ladder has 5 tiers; matching means we can reach
-    // the final (claude-code MAX) tier before declaring exhaustion.
+    // the final permitted tier before declaring exhaustion.
     const strategy = nextFallback(subState.kind, subState.attempts - 1, subState.lastError, cap);
     if (!strategy) {
         // v4.10.0-local fix: Check if exhaustion is due to infrastructure failure

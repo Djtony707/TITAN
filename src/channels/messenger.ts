@@ -303,7 +303,7 @@ export class MessengerChannel extends ChannelAdapter {
         // configured whenever the adapter connects.
         this.appSecret = process.env.FB_APP_SECRET || (channelConfig?.appSecret as string) || '';
         if (!this.appSecret) {
-            logger.warn(COMPONENT, 'FB_APP_SECRET not set — inbound webhook signatures will NOT be verified. Set FB_APP_SECRET to reject forged webhook POSTs.');
+            logger.warn(COMPONENT, 'FB_APP_SECRET not set — inbound webhook POSTs are disabled until signature verification is configured.');
         }
 
         if (!this.pageToken || !this.pageId) {
@@ -440,15 +440,13 @@ export class MessengerChannel extends ChannelAdapter {
      * from POSTing a forged `{object:'page', entry:[...]}` body (which would
      * otherwise trigger LLM calls + outbound Graph API messages).
      *
-     * Mirrors the Twilio voice-webhook pattern: when NO app secret is configured
-     * we skip verification (ok, reason='no-secret') so dev setups still work and
-     * the caller logs a warning; when a secret IS configured, a missing or
-     * mismatched signature is rejected. Comparison is constant-time.
+     * Missing app secrets and missing/mismatched signatures fail closed.
+     * Comparison is constant-time.
      *
      * @param rawBody The exact bytes Facebook signed (NOT a re-serialized object).
      */
     verifySignature(rawBody: Buffer | string, signatureHeader: string | undefined): { ok: boolean; reason: string } {
-        if (!this.appSecret) return { ok: true, reason: 'no-secret' };
+        if (!this.appSecret) return { ok: false, reason: 'no-secret' };
         if (!signatureHeader) return { ok: false, reason: 'missing-signature' };
         const m = /^sha256=([0-9a-fA-F]+)$/.exec(signatureHeader.trim());
         if (!m) return { ok: false, reason: 'malformed-signature' };

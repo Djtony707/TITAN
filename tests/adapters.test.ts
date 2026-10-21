@@ -10,13 +10,14 @@ vi.mock('../src/utils/logger.js', () => ({
 
 // Import after mocks
 import { getAdapter, listAdapters, registerAdapter, type ExternalAdapter, type AdapterContext } from '../src/agent/adapters/index.js';
+import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
+
+const cliFixture = useExternalCliFixture();
 
 describe('Adapter Registry', () => {
-    it('should have claude-code adapter registered', () => {
-        const adapter = getAdapter('claude-code');
-        expect(adapter).not.toBeNull();
-        expect(adapter!.type).toBe('claude-code');
-        expect(adapter!.displayName).toBe('Claude Code');
+    it('does not register or advertise the prohibited Claude adapter', () => {
+        expect(getAdapter('claude-code')).toBeNull();
+        expect(listAdapters()).not.toContain('claude-code');
     });
 
     it('should have codex adapter registered', () => {
@@ -39,10 +40,10 @@ describe('Adapter Registry', () => {
 
     it('should list all registered adapters', () => {
         const types = listAdapters();
-        expect(types).toContain('claude-code');
+        expect(types).not.toContain('claude-code');
         expect(types).toContain('codex');
         expect(types).toContain('bash');
-        expect(types.length).toBeGreaterThanOrEqual(3);
+        expect(types.length).toBeGreaterThanOrEqual(2);
     });
 
     it('should support custom adapter registration', () => {
@@ -147,36 +148,21 @@ describe('Bash Adapter', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    it('should return a non-empty result (success or helpful error)', async () => {
-        // v5.5.6: relaxed from string-coupling. The adapter should always
-        // return a result; if it fails, the failure message should be
-        // non-trivial. Behavior across environments (binary present /
-        // missing / nested sessions / JSON-stream output) is too varied
-        // to assert specific strings.
-        const adapter = getAdapter('claude-code')!;
-        const ctx: AdapterContext = {
-            task: 'echo test',
-            titanApiUrl: 'http://localhost:48420',
-            titanRunId: 'test-run-6',
-            titanIssueId: 'test-issue-6',
-            timeoutMs: 5_000,
-        };
-        const result = await adapter.execute(ctx);
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
+    it('rejects direct imports and forbidden adapter registration without execution', async () => {
+        const { claudeCodeAdapter } = await import('../src/agent/adapters/claudeCode.js');
+        const result = await claudeCodeAdapter.execute({ task: 'fixture', titanApiUrl: '', titanRunId: '', titanIssueId: '' });
+        expect(result.success).toBe(false);
+        expect(result.content).toContain('disabled by TITAN standing policy');
+        expect(cliFixture.invocations()).toEqual([]);
+        for (const type of ['claude', 'claude-code', 'claude_code', 'Claude Code']) {
+            expect(() => registerAdapter({ ...claudeCodeAdapter, type })).toThrow(/disabled by TITAN standing policy/);
+            expect(getAdapter(type)).toBeNull();
         }
     });
 });
 
 describe('Codex Adapter', () => {
-    it('should return a non-empty result (success or helpful error)', async () => {
-        // v5.5.6: relaxed from string-coupling. Codex now returns JSON-
-        // stream output on failure rather than a plain "not found"
-        // string, so the original assertion was wrong. Verify the shape
-        // contract instead: result is well-formed and any failure
-        // includes diagnostic content.
+    it('should pass stdin, arguments and callback metadata to a controlled Codex executable', async () => {
         const adapter = getAdapter('codex')!;
         const ctx: AdapterContext = {
             task: 'echo test',
@@ -186,10 +172,11 @@ describe('Codex Adapter', () => {
             timeoutMs: 5_000,
         };
         const result = await adapter.execute(ctx);
-        expect(result).toBeDefined();
-        expect(typeof result.success).toBe('boolean');
-        if (!result.success) {
-            expect(result.content.length).toBeGreaterThan(0);
-        }
+        expect(result.success).toBe(true);
+        expect(result.content).toBe('synthetic-codex-result');
+        expect(cliFixture.invocations()).toEqual([{
+            cli: 'codex', args: ['exec', '--json', '-'], input: 'echo test',
+            apiUrl: ctx.titanApiUrl, runId: ctx.titanRunId, issueId: ctx.titanIssueId,
+        }]);
     });
 });

@@ -15,6 +15,7 @@ import { spawn } from 'child_process';
 import { execSync } from 'child_process';
 import { registerSkill } from '../registry.js';
 import logger from '../../utils/logger.js';
+import { assertExternalAgentAllowed, isClaudeCodeAgent } from '../../security/externalAgentPolicy.js';
 
 const COMPONENT = 'DelegateAgent';
 
@@ -27,15 +28,14 @@ interface AgentSpec {
 
 /** Supported external coding agents. Claude Code is intentionally excluded. */
 export const EXTERNAL_AGENTS: Record<string, AgentSpec> = {
-    codex:    { bin: 'codex',    label: 'OpenAI Codex CLI', buildArgs: (t) => ['exec', '--full-auto', t] },
-    aider:    { bin: 'aider',    label: 'aider',            buildArgs: (t) => ['--message', t, '--yes-always'] },
-    goose:    { bin: 'goose',    label: 'Goose',            buildArgs: (t) => ['run', '-t', t] },
-    gemini:   { bin: 'gemini',   label: 'Gemini CLI',       buildArgs: (t) => ['-p', t] },
-    opencode: { bin: 'opencode', label: 'OpenCode',         buildArgs: (t) => ['run', t] },
+    codex:    { bin: 'codex',    label: 'OpenAI Codex CLI', buildArgs: () => ['exec', '--full-auto', '-'] },
+    aider:    { bin: 'aider',    label: 'aider',            buildArgs: (t) => [`--message=${t}`, '--yes-always'] },
+    goose:    { bin: 'goose',    label: 'Goose',            buildArgs: (t) => ['run', `--text=${t}`] },
+    gemini:   { bin: 'gemini',   label: 'Gemini CLI',       buildArgs: (t) => [`--prompt=${t}`] },
+    opencode: { bin: 'opencode', label: 'OpenCode',         buildArgs: (t) => ['run', '--', t] },
 };
 
 /** Names that must NEVER be delegated to (standing rule). */
-const FORBIDDEN = new Set(['claude', 'claude-code', 'claude_code']);
 
 /**
  * Which agents are available, given an `isAvailable(bin) => boolean` probe.
@@ -43,17 +43,17 @@ const FORBIDDEN = new Set(['claude', 'claude-code', 'claude_code']);
  */
 export function detectAvailableAgents(isAvailable: (bin: string) => boolean): string[] {
     return Object.entries(EXTERNAL_AGENTS)
-        .filter(([name, spec]) => !FORBIDDEN.has(name) && isAvailable(spec.bin))
+        .filter(([name, spec]) => !isClaudeCodeAgent(name) && isAvailable(spec.bin))
         .map(([name]) => name);
 }
 
 /** Build the spawn command for an agent + task. Throws on unknown/forbidden. */
-export function buildAgentCommand(agent: string, task: string): { cmd: string; args: string[] } {
-    if (FORBIDDEN.has(agent)) throw new Error('Delegation to Claude Code is not permitted (standing rule).');
+export function buildAgentCommand(agent: string, task: string): { cmd: string; args: string[]; input?: string } {
+    assertExternalAgentAllowed(agent);
     const spec = EXTERNAL_AGENTS[agent];
     if (!spec) throw new Error(`Unknown agent "${agent}". Known: ${Object.keys(EXTERNAL_AGENTS).join(', ')}`);
     if (!task || !task.trim()) throw new Error('A task is required.');
-    return { cmd: spec.bin, args: spec.buildArgs(task) };
+    return { cmd: spec.bin, args: spec.buildArgs(task), ...(agent === 'codex' ? { input: task } : {}) };
 }
 
 /** Real PATH probe via `command -v`. */
@@ -62,10 +62,12 @@ function binExists(bin: string): boolean {
 }
 
 /** Run an external agent, capturing combined output (bounded). */
-function runAgent(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<{ ok: boolean; output: string }> {
+function runAgent(cmd: string, args: string[], cwd: string, timeoutMs: number, input?: string): Promise<{ ok: boolean; output: string }> {
     return new Promise((resolve) => {
         let out = '';
         const child = spawn(cmd, args, { cwd, env: process.env });
+        child.stdin.on('error', () => { /* Child exit is reported below. */ });
+        child.stdin.end(input);
         const cap = (d: Buffer) => { out += d.toString(); if (out.length > 20000) out = out.slice(-20000); };
         child.stdout.on('data', cap);
         child.stderr.on('data', cap);
@@ -104,13 +106,13 @@ export function registerDelegateAgentSkill(): void {
                 if (!available.includes(agent)) {
                     return `Agent "${agent}" is not installed. Available: ${available.join(', ')}.`;
                 }
-                let cmd: string, cmdArgs: string[];
-                try { ({ cmd, args: cmdArgs } = buildAgentCommand(agent, task)); }
+                let cmd: string, cmdArgs: string[], input: string | undefined;
+                try { ({ cmd, args: cmdArgs, input } = buildAgentCommand(agent, task)); }
                 catch (e) { return (e as Error).message; }
                 const cwd = (args.cwd as string) || process.cwd();
                 const timeoutMs = Math.max(5_000, Number(args.timeoutSeconds || 300) * 1000);
                 logger.info(COMPONENT, `Delegating to ${agent} (${EXTERNAL_AGENTS[agent].label}) in ${cwd}`);
-                const { ok, output } = await runAgent(cmd, cmdArgs, cwd, timeoutMs);
+                const { ok, output } = await runAgent(cmd, cmdArgs, cwd, timeoutMs, input);
                 return `[${EXTERNAL_AGENTS[agent].label} ${ok ? 'completed' : 'failed/timed-out'}]\n${output}`;
             },
         },

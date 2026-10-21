@@ -1,7 +1,7 @@
 /**
  * TITAN Helper Utilities
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, readdirSync, statSync, chmodSync } from 'fs';
 import { dirname, join } from 'path';
 
 /** Ensure a directory exists, creating it recursively if needed */
@@ -13,6 +13,12 @@ export function mkdirIfNotExists(dirPath: string): void {
 
 // Backward-compatible alias — deprecated, use mkdirIfNotExists
 export const ensureDir = mkdirIfNotExists;
+
+/** Protect the specific application home, without chmodding ancestors or descendants. */
+export function ensurePrivateDirectory(dirPath: string): void {
+    mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+    if (process.platform !== 'win32') chmodSync(dirPath, 0o700);
+}
 
 /** Safely read a JSON file, returning null on failure */
 export function readJsonFile<T = unknown>(filePath: string): T | null {
@@ -32,11 +38,20 @@ export function writeJsonFile(filePath: string, data: unknown): void {
 }
 
 /** Atomic file write — writes to temp file then renames to avoid corruption on crash */
-export function atomicWriteFileSync(filePath: string, data: string | Buffer): void {
-    ensureDir(dirname(filePath));
+interface AtomicWriteOptions { mode?: number; directoryMode?: number }
+
+export function atomicWriteFileSync(filePath: string, data: string | Buffer, options?: AtomicWriteOptions): void {
+    const parent = dirname(filePath);
+    if (options?.directoryMode !== undefined) {
+        mkdirSync(parent, { recursive: true, mode: options.directoryMode });
+        if (process.platform !== 'win32') chmodSync(parent, options.directoryMode);
+    } else ensureDir(parent);
     const tmpPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
     try {
-        writeFileSync(tmpPath, data, 'utf-8');
+        if (options?.mode !== undefined) {
+            writeFileSync(tmpPath, data, { encoding: 'utf8', mode: options.mode, flag: 'wx' });
+            if (process.platform !== 'win32') chmodSync(tmpPath, options.mode);
+        } else writeFileSync(tmpPath, data, 'utf-8');
         renameSync(tmpPath, filePath);
     } catch (err) {
         // v5.5.28 FIX: clean up the tmp file on failure. Previously, if the
@@ -84,8 +99,8 @@ export function sweepAtomicTmpOrphans(dir: string, maxAgeMs = 60 * 60 * 1000): {
 }
 
 /** Atomic JSON file write — uses atomicWriteFileSync internally */
-export function atomicWriteJsonFile(filePath: string, data: unknown): void {
-    atomicWriteFileSync(filePath, JSON.stringify(data, null, 2));
+export function atomicWriteJsonFile(filePath: string, data: unknown, options?: AtomicWriteOptions): void {
+    atomicWriteFileSync(filePath, JSON.stringify(data, null, 2), options);
 }
 
 /** Safe string truncation */

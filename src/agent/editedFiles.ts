@@ -12,10 +12,11 @@
  * not allowed.
  */
 import { existsSync, readFileSync, statSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, relative, parse } from 'path';
 import logger from '../utils/logger.js';
 import { TITAN_HOME } from '../utils/constants.js';
 import { loadConfig } from '../config/config.js';
+import { runConfinedFileOperation } from '../security/confinedFiles.js';
 
 const COMPONENT = 'EditedFiles';
 const FIX_EVENTS_PATH = join(TITAN_HOME, 'fix-events.jsonl');
@@ -158,14 +159,13 @@ export interface FileContentResult {
     encoding: 'utf-8' | 'binary';
 }
 
-const MAX_READ_BYTES = 1 * 1024 * 1024; // 1 MB
-
 /**
  * Read the content of a file that TITAN has touched, OR a file under
  * the self-mod target / TITAN_HOME. Returns null if path is outside
  * the safe read perimeter.
  */
 export function readEditedFileContent(filePath: string): FileContentResult | { error: string } {
+    if (typeof filePath !== 'string' || !filePath || filePath.includes('\0')) return { error: 'Invalid file path' };
     const abs = resolve(filePath);
     const config = loadConfig();
     const selfModTarget = (config.autonomy as { selfMod?: { target?: string } }).selfMod?.target ?? '/opt/TITAN';
@@ -176,24 +176,19 @@ export function readEditedFileContent(filePath: string): FileContentResult | { e
     if (!readable && !touched) {
         return { error: `Path not in safe read perimeter: ${abs}` };
     }
-    if (!existsSync(abs)) {
-        return { error: `File no longer exists: ${abs}` };
-    }
-    try {
-        const st = statSync(abs);
-        if (!st.isFile()) return { error: 'Not a regular file' };
-        const truncated = st.size > MAX_READ_BYTES;
-        // Detect binary: sample first 1KB for null bytes
-        const sample = readFileSync(abs).subarray(0, Math.min(1024, st.size));
-        const hasNulls = sample.includes(0);
-        const encoding = hasNulls ? 'binary' : 'utf-8';
-        const content = encoding === 'binary'
-            ? `[binary file, ${st.size} bytes — preview not shown]`
-            : readFileSync(abs, 'utf-8').slice(0, MAX_READ_BYTES);
-        return { path: abs, content, sizeBytes: st.size, truncated, encoding };
-    } catch (err) {
-        return { error: `Read failed: ${(err as Error).message}` };
-    }
+    // Preserve the existing read perimeter. Explicit roots may have a trusted canonical
+    // location (e.g. macOS /tmp); descendants must never resolve through symlinks.
+    const roots = [resolve(selfModTarget), resolve(TITAN_HOME), '/home/dj/titan-saas', '/home/dj/scripts', '/tmp'];
+    const root = roots.filter(candidate => abs === candidate || abs.startsWith(candidate + '/'))
+        .sort((a, b) => b.length - a.length)[0] ?? parse(abs).root;
+    // A registry-only file outside those roots is authorized by its exact recorded path.
+    // Starting at the filesystem root also checks every ancestor of that exact path.
+    const result = runConfinedFileOperation(root, { operation: 'read', path: relative(root, abs) });
+    if (!result.ok) return { error: result.error ?? 'File read failed' };
+    const data = Buffer.from(result.dataBase64!, 'base64');
+    const encoding = data.subarray(0, 1024).includes(0) ? 'binary' : 'utf-8';
+    const content = encoding === 'binary' ? `[binary file, ${result.size} bytes — preview not shown]` : data.toString('utf8');
+    return { path: abs, content, sizeBytes: result.size!, truncated: result.truncated!, encoding };
 }
 
 // ── Research digest (subtask results + significant episodes) ────

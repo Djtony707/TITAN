@@ -17,15 +17,14 @@ vi.mock('fs', () => ({
 }));
 
 const mockReadJsonFile = vi.fn();
-const mockWriteJsonFile = vi.fn();
-const mockEnsureDir = vi.fn();
+const mockAtomicWriteJsonFile = vi.fn();
+const mockEnsurePrivateDirectory = vi.fn();
 const mockDeepMerge = vi.fn();
 
 vi.mock('../src/utils/helpers.js', () => ({
     readJsonFile: (...args: unknown[]) => mockReadJsonFile(...args),
-    writeJsonFile: (...args: unknown[]) => mockWriteJsonFile(...args),
-    ensureDir: (...args: unknown[]) => mockEnsureDir(...args),
-    mkdirIfNotExists: (...args: unknown[]) => mockEnsureDir(...args),
+    atomicWriteJsonFile: (...args: unknown[]) => mockAtomicWriteJsonFile(...args),
+    ensurePrivateDirectory: (...args: unknown[]) => mockEnsurePrivateDirectory(...args),
     deepMerge: (...args: unknown[]) => mockDeepMerge(...args),
 }));
 
@@ -69,9 +68,48 @@ const ENV_KEYS = [
     'DISCORD_TOKEN',
     'TELEGRAM_TOKEN',
     'SLACK_TOKEN',
+    'LIVEKIT_URL',
+    'LIVEKIT_API_KEY',
+    'LIVEKIT_API_SECRET',
 ];
 
 let savedEnv: Record<string, string | undefined> = {};
+
+describe('explicit LiveKit environment configuration', () => {
+    it('retains unrelated saved settings even when a legacy voice pair is unusable', () => {
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({ voice: { livekitApiKey: 'devkey', livekitApiSecret: 'secret' }, agent: { model: 'local/operator-model' } });
+        const config = loadConfig();
+        expect(config.agent.model).toBe('local/operator-model');
+        expect(config.voice.livekitApiKey).toBe('devkey');
+        expect(config.voice.livekitApiSecret).toBe('secret');
+        expect(mockAtomicWriteJsonFile).not.toHaveBeenCalled();
+    });
+
+    it('loads operator credentials without enabling voice or changing local F5 defaults', () => {
+        mockExistsSync.mockReturnValue(false);
+        process.env.LIVEKIT_URL = 'ws://127.0.0.1:7880';
+        process.env.LIVEKIT_API_KEY = 'synthetic_operator_key';
+        process.env.LIVEKIT_API_SECRET = 'synthetic_operator_secret_0123456789abcdef';
+        const config = loadConfig();
+        expect(config.voice.livekitUrl).toBe('ws://127.0.0.1:7880');
+        expect(config.voice.livekitApiKey).toBe('synthetic_operator_key');
+        expect(config.voice.livekitApiSecret).toBe('synthetic_operator_secret_0123456789abcdef');
+        expect(config.voice.enabled).toBe(false);
+        expect(config.voice.ttsUrl).toBe('http://localhost:5006');
+        expect(mockAtomicWriteJsonFile).not.toHaveBeenCalled();
+        expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('synthetic_operator_secret');
+    });
+
+    it('preserves explicit saved private credentials when environment overrides are absent', () => {
+        mockExistsSync.mockReturnValue(true);
+        mockReadJsonFile.mockReturnValue({ voice: { livekitApiKey: 'synthetic_saved_key', livekitApiSecret: 'synthetic_saved_secret_0123456789abcdef' }, agent: { model: 'local/operator-model' } });
+        const config = loadConfig();
+        expect(config.voice.livekitApiKey).toBe('synthetic_saved_key');
+        expect(config.voice.livekitApiSecret).toBe('synthetic_saved_secret_0123456789abcdef');
+        expect(config.agent.model).toBe('local/operator-model');
+    });
+});
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -189,10 +227,10 @@ describe('loadConfig', () => {
         expect(logger.info).toHaveBeenCalledWith('Config', 'No config file found, using defaults');
     });
 
-    it('should call ensureDir with TITAN_HOME', () => {
+    it('should ensure a private TITAN_HOME', () => {
         mockExistsSync.mockReturnValue(false);
         loadConfig();
-        expect(mockEnsureDir).toHaveBeenCalledWith('/tmp/titan-test-config');
+        expect(mockEnsurePrivateDirectory).toHaveBeenCalledWith('/tmp/titan-test-config');
     });
 
     it('should load config from file when it exists', () => {
@@ -223,8 +261,8 @@ describe('loadConfig', () => {
         const first = loadConfig();
         const second = loadConfig();
         expect(first).toBe(second); // same reference = cached
-        // ensureDir should only have been called once
-        expect(mockEnsureDir).toHaveBeenCalledTimes(1);
+        // ensurePrivateDirectory should only have been called once
+        expect(mockEnsurePrivateDirectory).toHaveBeenCalledTimes(1);
     });
 
     it('should return fresh config after resetConfigCache', () => {
@@ -233,7 +271,7 @@ describe('loadConfig', () => {
         resetConfigCache();
         const second = loadConfig();
         // After reset, a new config object is created
-        expect(mockEnsureDir).toHaveBeenCalledTimes(2);
+        expect(mockEnsurePrivateDirectory).toHaveBeenCalledTimes(2);
     });
 
     it('should warn on validation failure and use defaults', () => {
@@ -397,18 +435,19 @@ describe('loadConfig', () => {
 // ─── saveConfig ─────────────────────────────────────────────────
 
 describe('saveConfig', () => {
-    it('should call ensureDir with TITAN_HOME', () => {
+    it('should request a private atomic write and private parent directory', () => {
         const config = getDefaultConfig();
         saveConfig(config);
-        expect(mockEnsureDir).toHaveBeenCalledWith('/tmp/titan-test-config');
+        expect(mockAtomicWriteJsonFile).toHaveBeenCalledWith('/tmp/titan-test-config/titan.json', config, { mode: 0o600, directoryMode: 0o700 });
     });
 
-    it('should call writeJsonFile with config path and data', () => {
+    it('should call atomicWriteJsonFile with config path, data and private permissions', () => {
         const config = getDefaultConfig();
         saveConfig(config);
-        expect(mockWriteJsonFile).toHaveBeenCalledWith(
+        expect(mockAtomicWriteJsonFile).toHaveBeenCalledWith(
             '/tmp/titan-test-config/titan.json',
             config,
+            { mode: 0o600, directoryMode: 0o700 },
         );
     });
 
@@ -461,7 +500,7 @@ describe('updateConfig', () => {
         mockDeepMerge.mockImplementation((target: unknown) => target);
 
         updateConfig({});
-        expect(mockWriteJsonFile).toHaveBeenCalled();
+        expect(mockAtomicWriteJsonFile).toHaveBeenCalled();
     });
 
     it('should return the validated config', () => {
@@ -478,8 +517,8 @@ describe('updateConfig', () => {
         mockDeepMerge.mockImplementation((target: unknown) => target);
 
         updateConfig({});
-        // loadConfig was called internally, so ensureDir should be called
-        expect(mockEnsureDir).toHaveBeenCalledWith('/tmp/titan-test-config');
+        // loadConfig was called internally, so ensurePrivateDirectory should be called
+        expect(mockEnsurePrivateDirectory).toHaveBeenCalledWith('/tmp/titan-test-config');
     });
 });
 
@@ -511,8 +550,8 @@ describe('resetConfigCache', () => {
         const first = loadConfig();
         resetConfigCache();
         const second = loadConfig();
-        // Both calls should hit ensureDir because cache was cleared
-        expect(mockEnsureDir).toHaveBeenCalledTimes(2);
+        // Both calls should ensure private storage because cache was cleared
+        expect(mockEnsurePrivateDirectory).toHaveBeenCalledTimes(2);
     });
 
     it('should not throw when called multiple times', () => {
@@ -622,7 +661,7 @@ describe('config lifecycle scenarios', () => {
         const initial = loadConfig();
 
         saveConfig(initial);
-        expect(mockWriteJsonFile).toHaveBeenCalledTimes(1);
+        expect(mockAtomicWriteJsonFile).toHaveBeenCalledTimes(1);
 
         resetConfigCache();
 
@@ -658,7 +697,7 @@ describe('config lifecycle scenarios', () => {
         saveConfig(config1);
         saveConfig(config2);
 
-        expect(mockWriteJsonFile).toHaveBeenCalledTimes(2);
+        expect(mockAtomicWriteJsonFile).toHaveBeenCalledTimes(2);
         const loaded = loadConfig();
         expect(loaded).toBe(config2);
     });

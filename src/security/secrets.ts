@@ -22,6 +22,15 @@ const PBKDF2_KEY_LEN = 32;
 const PBKDF2_DIGEST = 'sha512';
 const SALT_LEN = 32;
 const IV_LEN = 16;
+const AUTH_TAG_LEN = 16;
+
+function decodeHex(value: unknown, byteLength?: number): Buffer {
+    if (typeof value !== 'string' || !/^(?:[0-9a-f]{2})*$/i.test(value)
+        || (byteLength !== undefined && value.length !== byteLength * 2)) {
+        throw new Error('Invalid vault encryption encoding.');
+    }
+    return Buffer.from(value, 'hex');
+}
 
 /** On-disk vault format */
 export interface VaultFile {
@@ -63,7 +72,7 @@ function deriveKey(passphrase: string, salt: Buffer): Buffer {
  */
 function encryptData(plaintext: string, key: Buffer): { iv: string; authTag: string; data: string } {
     const iv = randomBytes(IV_LEN);
-    const cipher = createCipheriv(ALGORITHM, key, iv);
+    const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LEN });
     let encrypted = cipher.update(plaintext, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag().toString('hex');
@@ -74,11 +83,12 @@ function encryptData(plaintext: string, key: Buffer): { iv: string; authTag: str
  * Decrypt an encrypted payload with a given key using AES-256-GCM.
  */
 function decryptData(payload: { iv: string; authTag: string; data: string }, key: Buffer): string {
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(payload.iv, 'hex'));
-    decipher.setAuthTag(Buffer.from(payload.authTag, 'hex'));
-    let decrypted = decipher.update(payload.data, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    const iv = decodeHex(payload.iv, IV_LEN);
+    const authTag = decodeHex(payload.authTag, AUTH_TAG_LEN);
+    const data = decodeHex(payload.data);
+    const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LEN });
+    decipher.setAuthTag(authTag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
 }
 
 /**
@@ -149,15 +159,17 @@ export function unlockVault(passphrase: string): void {
         throw new Error('Vault file is corrupted or not valid JSON.');
     }
 
-    if (!vaultFile.salt || !vaultFile.iv || !vaultFile.authTag || !vaultFile.data) {
+    if (!vaultFile || typeof vaultFile !== 'object' || Array.isArray(vaultFile)
+        || !vaultFile.salt || !vaultFile.iv || !vaultFile.authTag || !vaultFile.data) {
         throw new Error('Vault file is missing required fields.');
     }
 
-    const salt = Buffer.from(vaultFile.salt, 'hex');
-    const key = deriveKey(passphrase, salt);
-
+    let salt: Buffer;
+    let key: Buffer;
     let plaintext: string;
     try {
+        salt = decodeHex(vaultFile.salt, SALT_LEN);
+        key = deriveKey(passphrase, salt);
         plaintext = decryptData(
             { iv: vaultFile.iv, authTag: vaultFile.authTag, data: vaultFile.data },
             key,

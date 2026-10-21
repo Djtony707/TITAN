@@ -59,7 +59,7 @@ describe('Dockerfile', () => {
     });
 
     it('should use alpine for production stage', () => {
-        expect(dockerfile).toContain('node:22-alpine');
+        expect(dockerfile).toContain('node:22.23.4-alpine');
     });
 
     it('should expose port 48420', () => {

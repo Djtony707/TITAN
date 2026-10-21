@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'fs';
 import { TITAN_CONFIG_PATH, TITAN_HOME } from '../utils/constants.js';
-import { readJsonFile, writeJsonFile, mkdirIfNotExists, deepMerge } from '../utils/helpers.js';
+import { readJsonFile, atomicWriteJsonFile, ensurePrivateDirectory, deepMerge } from '../utils/helpers.js';
 import { TitanConfigSchema, type TitanConfig } from './schema.js';
 import logger from '../utils/logger.js';
 
@@ -58,7 +58,7 @@ function applyAliasSanitizer(cfg: TitanConfig): void {
 export function loadConfig(): TitanConfig {
     if (cachedConfig) return cachedConfig;
 
-    mkdirIfNotExists(TITAN_HOME);
+    ensurePrivateDirectory(TITAN_HOME);
 
     let rawConfig: Record<string, unknown> = {};
 
@@ -163,8 +163,7 @@ export function loadConfig(): TitanConfig {
 
 /** Save current configuration to disk */
 export function saveConfig(config: TitanConfig): void {
-    mkdirIfNotExists(TITAN_HOME);
-    writeJsonFile(TITAN_CONFIG_PATH, config);
+    atomicWriteJsonFile(TITAN_CONFIG_PATH, config, { mode: 0o600, directoryMode: 0o700 });
     cachedConfig = config;
     logger.info(COMPONENT, `Config saved to ${TITAN_CONFIG_PATH}`);
 }
@@ -278,6 +277,9 @@ function applyEnvOverrides(config: Record<string, unknown>): void {
         DISCORD_TOKEN: (val) => setNested(config, 'channels.discord.token', val),
         TELEGRAM_TOKEN: (val) => setNested(config, 'channels.telegram.token', val),
         SLACK_TOKEN: (val) => setNested(config, 'channels.slack.token', val),
+        LIVEKIT_URL: (val) => setNested(config, 'voice.livekitUrl', val),
+        LIVEKIT_API_KEY: (val) => setNested(config, 'voice.livekitApiKey', val),
+        LIVEKIT_API_SECRET: (val) => setNested(config, 'voice.livekitApiSecret', val),
         GOOGLE_OAUTH_CLIENT_ID: (val) => setNested(config, 'oauth.google.clientId', val),
         GOOGLE_OAUTH_CLIENT_SECRET: (val) => setNested(config, 'oauth.google.clientSecret', val),
         OPENROUTER_API_KEY: (val) => setNested(config, 'providers.openrouter.apiKey', val),

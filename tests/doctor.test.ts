@@ -186,6 +186,22 @@ describe('runDoctor', () => {
 // ─── Node.js version check ──────────────────────────────────────
 
 describe('runDoctor - Node.js version', () => {
+    it.each(['20.20.0', '22.23.3', '24.22.0', '26.12.0', '25.0.0', '27.0.0', '24.22.1-rc.1'])(
+        'rejects unsupported Node %s before diagnostics, provider calls or repairs', async (version) => {
+            const descriptor = Object.getOwnPropertyDescriptor(process.versions, 'node')!;
+            Object.defineProperty(process.versions, 'node', { ...descriptor, value: version });
+            try {
+                await expect(runDoctor({ json: true, fix: true })).rejects.toThrow(/Unsupported Node.js/);
+                expect(mockLoadConfig).not.toHaveBeenCalled();
+                expect(mockHealthCheckAll).not.toHaveBeenCalled();
+                expect(mockFetch).not.toHaveBeenCalled();
+                expect(mockFixMissingTitanHome).not.toHaveBeenCalled();
+            } finally {
+                Object.defineProperty(process.versions, 'node', descriptor);
+            }
+        },
+    );
+
     it('should report Node.js version', async () => {
         await runDoctor();
         const output = consoleSpy.mock.calls.map((c) => String(c[0])).join('\n');

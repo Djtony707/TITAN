@@ -20,6 +20,20 @@ vi.mock('../src/security/auditLog.js', () => ({
     logAudit: vi.fn(),
 }));
 
+// Threshold tests must not import the running daemon or mutate goal/agent stores.
+vi.mock('../src/safety/scopedPause.js', () => ({
+    pauseTarget: vi.fn(),
+    isTargetPaused: vi.fn(() => false),
+}));
+vi.mock('../src/agent/goals.js', () => ({
+    listGoals: () => [],
+    updateGoal: vi.fn(),
+}));
+vi.mock('../src/agent/commandPost.js', () => ({
+    getRegisteredAgents: () => [],
+    updateAgentStatus: vi.fn(),
+}));
+
 // Set TITAN_HOME to a temp dir so each test gets an isolated state file
 let testHome: string;
 vi.mock('../src/utils/constants.js', async (orig) => {
@@ -36,6 +50,7 @@ let getState: typeof import('../src/safety/killSwitch.js').getState;
 let resume: typeof import('../src/safety/killSwitch.js').resume;
 
 beforeEach(async () => {
+    vi.clearAllMocks();
     testHome = mkdtempSync(join(tmpdir(), 'titan-killswitch-retune-'));
     // Reload the module for a clean cache
     vi.resetModules();
@@ -45,7 +60,11 @@ beforeEach(async () => {
     resume = mod.resume;
 });
 
-afterEach(() => {
+afterEach(async () => {
+    await vi.dynamicImportSettled();
+    const flags = globalThis as unknown as { __titan_autopilot_killed?: boolean; __titan_abort_all?: boolean };
+    delete flags.__titan_autopilot_killed;
+    delete flags.__titan_abort_all;
     try { rmSync(testHome, { recursive: true, force: true }); } catch { /* ok */ }
 });
 
@@ -89,6 +108,9 @@ describe('killSwitch — non-exempt paths still trigger', () => {
         }
         expect(getState().status).toBe('killed');
         expect(getState().lastEvent?.trigger).toBe('fix_oscillation');
+        await vi.dynamicImportSettled();
+        const { pauseTarget } = await import('../src/safety/scopedPause.js');
+        expect(pauseTarget).toHaveBeenCalledWith('file:/home/user/project/src/agent/agent.ts', 'fix_oscillation', expect.any(Object));
 
         // Resume so afterEach can clean state
         await resume('test', 'test cleanup');

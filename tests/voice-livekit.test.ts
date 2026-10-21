@@ -4,6 +4,14 @@
  */
 import { describe, it, expect } from 'vitest';
 
+it('keeps local F5 configuration usable without enabling LiveKit credentials', async () => {
+  const { VoiceConfigSchema } = await import('../src/config/schema.js');
+  const voice = VoiceConfigSchema.parse({ ttsEngine: 'f5-tts', ttsUrl: 'http://localhost:5006' });
+  expect(voice.ttsEngine).toBe('f5-tts');
+  expect(voice.ttsUrl).toBe('http://localhost:5006');
+  expect(voice.livekitApiSecret).toBe('');
+});
+
 // ─── VoiceConfigSchema ──────────────────────────────────────────
 describe('VoiceConfigSchema', () => {
   it('should parse empty voice config with defaults', async () => {
@@ -11,8 +19,8 @@ describe('VoiceConfigSchema', () => {
     const result = VoiceConfigSchema.parse({});
     expect(result.enabled).toBe(false);
     expect(result.livekitUrl).toBe('ws://localhost:7880');
-    expect(result.livekitApiKey).toBe('devkey');
-    expect(result.livekitApiSecret).toBe('secret');
+    expect(result.livekitApiKey).toBe('');
+    expect(result.livekitApiSecret).toBe('');
     expect(result.agentUrl).toBe('http://localhost:8081');
     expect(result.ttsVoice).toBe('andrew');
   });
@@ -37,8 +45,8 @@ describe('VoiceConfigSchema', () => {
     const { VoiceConfigSchema } = await import('../src/config/schema.js');
     const result = VoiceConfigSchema.parse({ enabled: true });
     expect(result.livekitUrl).toBe('ws://localhost:7880');
-    expect(result.livekitApiKey).toBe('devkey');
-    expect(result.livekitApiSecret).toBe('secret');
+    expect(result.livekitApiKey).toBe('');
+    expect(result.livekitApiSecret).toBe('');
     expect(result.ttsVoice).toBe('andrew');
   });
 
@@ -75,7 +83,8 @@ describe('TitanConfig voice integration', () => {
     expect(result.voice.livekitUrl).toBe('ws://10.0.0.5:7880');
     expect(result.voice.ttsVoice).toBe('bf_emma');
     // Defaults still apply for unset fields
-    expect(result.voice.livekitApiKey).toBe('devkey');
+    expect(result.voice.livekitApiKey).toBe('');
+    expect(result.voice.livekitApiSecret).toBe('');
     expect(result.voice.agentUrl).toBe('http://localhost:8081');
   });
 });

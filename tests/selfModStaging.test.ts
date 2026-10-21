@@ -64,9 +64,7 @@ vi.mock('../src/agent/shadowGit.js', () => ({
     snapshotBeforeWrite: vi.fn(async () => { /* ok */ }),
 }));
 
-// Stub opusReview — applyStagedPR now routes through the reviewer gate.
-// In tests we want apply paths to succeed without spinning up a real LLM,
-// so we return an auto-approve verdict with high confidence.
+// An approving reviewer must not bypass the unconditional runtime apply hold.
 vi.mock('../src/safety/opusReview.js', () => ({
     reviewStagedBundle: vi.fn(async () => ({
         verdict: 'approve',
@@ -105,6 +103,67 @@ describe('self-mod staging + scope lock', () => {
             expect(sm.tags).toContain('self-healing');
             expect(sm.staging).toBe(true);
         });
+    });
+
+    it('rejects direct self-mod writes when staging is disabled and preserves ordinary workspace writes', async () => {
+        const { loadConfig } = await import('../src/config/config.js');
+        const config = loadConfig();
+        const noStaging = { ...config, autonomy: { ...config.autonomy,
+            selfMod: { ...config.autonomy.selfMod, staging: false },
+        } };
+        setSessionGoal('sess-1', { goalId: 'held-direct', goalTitle: 'Framework repair', proposedBy: 'fixture', tags: ['self-mod'] });
+        vi.mocked(loadConfig).mockReturnValueOnce(noStaging);
+        expect(decideScope('sess-1', join(tmpTarget, 'held-direct.ts'))).toEqual({
+            action: 'reject', reason: expect.stringContaining('security hold'),
+        });
+        setSessionGoal('sess-1', { goalId: 'ordinary', goalTitle: 'Write a recipe', proposedBy: 'fixture', tags: ['cooking'] });
+        vi.mocked(loadConfig).mockReturnValueOnce(noStaging);
+        expect(decideScope('sess-1', join(tmpTarget, 'ordinary.txt'))).toEqual({ action: 'allow' });
+        expect(decideScope(null, join(tmpTarget, 'manual.txt'))).toEqual({ action: 'allow' });
+    });
+
+    it.each(['valid', 'outside-target metadata', 'invalid metadata'])('holds runtime application with %s even with an approving reviewer', async (metadata) => {
+        const { reviewStagedBundle } = await import('../src/safety/opusReview.js');
+        const { snapshotBeforeWrite } = await import('../src/agent/shadowGit.js');
+        const scanner = await import('../src/agent/stagingScanners.js');
+        const scan = vi.spyOn(scanner, 'scanBundle');
+        vi.mocked(reviewStagedBundle).mockClear();
+        vi.mocked(snapshotBeforeWrite).mockClear();
+        const goalId = `held-${metadata.replaceAll(' ', '-')}`;
+        setSessionGoal('sess-1', { goalId, goalTitle: 'Held candidate', proposedBy: 'scout', tags: ['self-mod'] });
+        const { mkdirSync, readdirSync } = await import('fs');
+        const { dirname } = await import('path');
+        const target = join(tmpTarget, `${goalId}.ts`);
+        const decision = decideScope('sess-1', target);
+        mkdirSync(dirname(decision.stagedPath!), { recursive: true });
+        writeFileSync(target, 'original target');
+        writeFileSync(decision.stagedPath!, 'export const candidate = true;');
+        await recordStagedWrite({ sessionId: 'sess-1', toolName: 'write_file', stagedPath: decision.stagedPath!, targetPath: target });
+        const bundlePath = join(tmpHome, 'self-mod-staging', goalId, 'bundle.json');
+        const external = join(tmpHome, `${goalId}-outside-target.ts`);
+        writeFileSync(external, 'outside target unchanged');
+        if (metadata === 'outside-target metadata') {
+            const bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
+            bundle.files[0].targetPath = external;
+            writeFileSync(bundlePath, JSON.stringify(bundle));
+        } else if (metadata === 'invalid metadata') writeFileSync(bundlePath, '{invalid');
+        const bundleBytes = readFileSync(bundlePath, 'utf8');
+        const entries = readdirSync(join(tmpHome, 'self-mod-staging'));
+        try {
+            const result = await applyStagedPR(goalId);
+            expect(result.blockedBySecurityHold).toBe(true);
+            expect(result.bundle).toBeNull();
+            expect(result.applied).toEqual([]);
+            expect(result.failed[0].error).toContain('immutable');
+            expect(readFileSync(target, 'utf8')).toBe('original target');
+            expect(readFileSync(external, 'utf8')).toBe('outside target unchanged');
+            expect(readFileSync(decision.stagedPath!, 'utf8')).toBe('export const candidate = true;');
+            expect(readFileSync(bundlePath, 'utf8')).toBe(bundleBytes);
+            expect(readdirSync(join(tmpHome, 'self-mod-staging'))).toEqual(entries);
+            expect(scan).not.toHaveBeenCalled();
+            expect(reviewStagedBundle).not.toHaveBeenCalled();
+            expect(snapshotBeforeWrite).not.toHaveBeenCalled();
+        } finally { scan.mockRestore(); }
     });
 
     describe('goalMatchesSelfModTags', () => {
@@ -174,7 +233,7 @@ describe('self-mod staging + scope lock', () => {
     });
 
     describe('recordStagedWrite + applyStagedPR', () => {
-        it('writes bundle.json, applies files to target, and archives staging dir', async () => {
+        it('writes bundle.json and preserves staging under the runtime apply hold', async () => {
             setSessionGoal('sess-1', {
                 goalId: 'g-apply', goalTitle: 'Self-heal loop', proposedBy: 'scout', tags: ['self-repair'],
             });
@@ -205,12 +264,12 @@ describe('self-mod staging + scope lock', () => {
 
             // Apply
             const result = await applyStagedPR('g-apply');
-            expect(result.applied).toEqual([d.targetPath]);
-            expect(result.failed).toHaveLength(0);
-            expect(existsSync(d.targetPath!)).toBe(true);
-            expect(readFileSync(d.targetPath!, 'utf-8')).toBe('export const x = 1;\n');
-            // Staging dir is archived
-            expect(existsSync(join(tmpHome, 'self-mod-staging', 'g-apply'))).toBe(false);
+            expect(result.applied).toEqual([]);
+            expect(result.blockedBySecurityHold).toBe(true);
+            expect(result.failed).toHaveLength(1);
+            expect(existsSync(d.targetPath!)).toBe(false);
+            expect(readFileSync(d.stagedPath!, 'utf-8')).toBe('export const x = 1;\n');
+            expect(existsSync(join(tmpHome, 'self-mod-staging', 'g-apply'))).toBe(true);
             clearSessionGoal('sess-1');
         });
 
@@ -259,7 +318,9 @@ describe('self-mod staging + scope lock', () => {
             const bundle = JSON.parse(readFileSync(join(tmpHome, 'self-mod-staging', 'g-multi', 'bundle.json'), 'utf-8'));
             expect(bundle.files).toHaveLength(3);
             const result = await applyStagedPR('g-multi');
-            expect(result.applied).toHaveLength(3);
+            expect(result.applied).toHaveLength(0);
+            expect(result.blockedBySecurityHold).toBe(true);
+            expect(readFileSync(join(tmpHome, 'self-mod-staging', 'g-multi', 'bundle.json'), 'utf8')).toContain('src/a.ts');
             clearSessionGoal('sess-1');
         });
 
@@ -284,8 +345,10 @@ describe('self-mod staging + scope lock', () => {
             const bundle = JSON.parse(readFileSync(join(tmpHome, 'self-mod-staging', 'g-dedup', 'bundle.json'), 'utf-8'));
             expect(bundle.files).toHaveLength(1);
             const result = await applyStagedPR('g-dedup');
-            expect(result.applied).toEqual([target]);
-            expect(readFileSync(target, 'utf-8')).toBe('v3'); // latest wins
+            expect(result.applied).toEqual([]);
+            expect(result.blockedBySecurityHold).toBe(true);
+            expect(existsSync(target)).toBe(false);
+            expect(readFileSync(bundle.files[0].stagedPath, 'utf-8')).toBe('v3'); // latest remains staged
             clearSessionGoal('sess-1');
         });
     });
@@ -296,6 +359,7 @@ describe('self-mod staging + scope lock', () => {
             expect(r.applied).toHaveLength(0);
             expect(r.failed).toHaveLength(1);
             expect(r.bundle).toBeNull();
+            expect(r.blockedBySecurityHold).toBe(true);
         });
     });
 

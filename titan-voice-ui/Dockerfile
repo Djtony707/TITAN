@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:22.23.4-slim
 
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 

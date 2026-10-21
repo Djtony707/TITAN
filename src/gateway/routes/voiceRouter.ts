@@ -12,10 +12,13 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { execSync, spawn } from 'child_process';
 import { loadConfig } from '../../config/config.js';
+import type { VoiceConfig } from '../../config/schema.js';
 import logger from '../../utils/logger.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
 import { processMessage } from '../../agent/agent.js';
 import { routeMessage } from '../../agent/multiAgent.js';
+import { voiceServiceFetch } from '../../security/voiceServiceAuth.js';
+import { hasPrivateLiveKitCredentials } from '../../security/livekitCredentials.js';
 
 // ESM shim — @types/node declares __dirname globally so tsc accepts it,
 // but it does NOT exist at ESM runtime (broke F5-TTS auto-start on prod).
@@ -55,6 +58,7 @@ export function createVoiceRouter(
     const cfg = loadConfig();
     const voice = cfg.voice;
     if (!voice.enabled) { res.json({ available: false, reason: 'Voice not enabled in config' }); return; }
+    if (!hasPrivateLiveKitCredentials(voice)) { res.json({ available: false, reason: 'Private LiveKit credentials are not configured' }); return; }
     try {
       const livekitHttp = voice.livekitUrl.replace('ws://', 'http://').replace('wss://', 'https://');
       const resp = await fetch(livekitHttp, { signal: AbortSignal.timeout(3000) });
@@ -65,13 +69,15 @@ export function createVoiceRouter(
   });
 
   router.get('/voice/config', (_req, res) => {
-    res.json(loadConfig().voice);
+    const publicVoice: Partial<VoiceConfig> = { ...loadConfig().voice };
+    delete publicVoice.livekitApiSecret;
+    res.json(publicVoice);
   });
 
   router.post('/livekit/token', async (req, res) => {
     const cfg = loadConfig();
     if (!cfg.voice?.enabled) { res.status(404).json({ error: 'Voice not enabled' }); return; }
-    if (!cfg.voice.livekitApiKey || !cfg.voice.livekitApiSecret) {
+    if (!hasPrivateLiveKitCredentials(cfg.voice)) {
       res.status(503).json({ error: 'LiveKit not configured' }); return;
     }
     try {
@@ -111,14 +117,15 @@ export function createVoiceRouter(
       { key: 'agent' as const, url: cfg.voice.agentUrl },
       { key: 'stt' as const, url: sttHealthUrl },
     ].map(async ({ key, url }) => {
+      if (key === 'livekit' && !hasPrivateLiveKitCredentials(cfg.voice)) return;
       try { const resp = await fetch(url, { signal: AbortSignal.timeout(3000) }); results[key] = resp.ok || resp.status < 500; }
       catch { results[key] = false; }
     }));
     try {
-      let resp = await fetch(`${ttsUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      let resp = await voiceServiceFetch(`${ttsUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
       if (!resp || resp.status >= 400) {
         const voice = cfg.voice.ttsVoice || 'andrew';
-        resp = await fetch(`${ttsUrl}/v1/audio/speech`, {
+        resp = await voiceServiceFetch(`${ttsUrl}/v1/audio/speech`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: 'f5-tts', input: '.', voice, response_format: 'pcm' }),
           signal: AbortSignal.timeout(10000),
@@ -170,7 +177,7 @@ export function createVoiceRouter(
     const text = rawText.length > 500 ? rawText.slice(0, 497) + '...' : rawText;
     const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
     try {
-      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+      const ttsRes = await voiceServiceFetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'f5-tts-mlx', input: text, voice: voiceId, response_format: 'wav' }),
         signal: AbortSignal.timeout(60000),
@@ -217,7 +224,7 @@ export function createVoiceRouter(
     const effectiveTtsModel = 'f5-tts-mlx';
 
     try {
-      const probe = await fetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
+      const probe = await voiceServiceFetch(`${effectiveTtsUrl}/health`, { signal: AbortSignal.timeout(5000) });
       if (!probe.ok) effectiveTtsEngine = 'unavailable';
     } catch {
       effectiveTtsEngine = 'unavailable';
@@ -277,7 +284,7 @@ export function createVoiceRouter(
       if (index >= MAX_TTS_SENTENCES || totalTtsChars >= MAX_TTS_CHARS) return;
       totalTtsChars += clean.length;
       try {
-        const ttsRes = await fetch(`${effectiveTtsUrl}/v1/audio/speech`, {
+        const ttsRes = await voiceServiceFetch(`${effectiveTtsUrl}/v1/audio/speech`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: effectiveTtsModel, input: clean, voice: voiceId, response_format: 'wav' }),
           signal: AbortSignal.timeout(60000),
@@ -362,7 +369,7 @@ export function createVoiceRouter(
           if (clientDisconnected || totalTtsChars >= MAX_TTS_CHARS) break;
           totalTtsChars += chunk.length;
           try {
-            const ttsRes = await fetch(`${effectiveTtsUrl}/v1/audio/speech`, {
+            const ttsRes = await voiceServiceFetch(`${effectiveTtsUrl}/v1/audio/speech`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ model: effectiveTtsModel, input: chunk, voice: voiceId, response_format: 'wav' }),
               signal: AbortSignal.timeout(120000),
@@ -412,7 +419,7 @@ export function createVoiceRouter(
       try { const files = fs.existsSync(voicesDir) ? fs.readdirSync(voicesDir).filter(f => f.endsWith('.wav')) : []; res.json({ voices: files.length ? files.map(f => f.replace('.wav', '')) : ['default'], engine: 'f5-tts' }); } catch { res.json({ voices: ['default'], engine: 'f5-tts' }); }
       return;
     }
-    try { const ttsRes = await fetch(`${ttsUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(3000) }); if (!ttsRes.ok) throw new Error(); const data = await ttsRes.json() as { voices?: string[] }; res.json({ ...data, engine: 'f5-tts' }); } catch { res.json({ voices: F5_TTS_DEFAULT_VOICES, engine: 'f5-tts' }); }
+    try { const ttsRes = await voiceServiceFetch(`${ttsUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(3000) }); if (!ttsRes.ok) throw new Error(); const data = await ttsRes.json() as { voices?: string[] }; res.json({ ...data, engine: 'f5-tts' }); } catch { res.json({ voices: F5_TTS_DEFAULT_VOICES, engine: 'f5-tts' }); }
   });
 
   router.get('/voice/tts', async (req, res) => {
@@ -423,7 +430,7 @@ export function createVoiceRouter(
       if (!text.trim()) { res.status(400).json({ error: 'text required' }); return; }
       const cfg = loadConfig();
       const ttsUrl = cfg.voice?.ttsUrl || 'http://localhost:5006';
-      const ttsRes = await fetch(`${ttsUrl}/v1/audio/speech`, {
+      const ttsRes = await voiceServiceFetch(`${ttsUrl}/v1/audio/speech`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: text, voice, response_format: format }),
         signal: AbortSignal.timeout(180_000),

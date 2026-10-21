@@ -5,15 +5,15 @@
  *   1. Leaked secrets (API keys, tokens, private keys, passwords)
  *   2. License violations (GPL, AGPL imports when the project is MIT, etc.)
  *
- * Called before `applyStagedPR` in commandPost's approval handler. If
- * either scanner raises high-severity findings, the apply is BLOCKED and
- * the approval moves to a `rejected_by_scanner` state so Tony can review.
+ * Standalone inspection for staged candidates. Runtime self-mod application
+ * is unconditionally security-held, including candidates with a clean scan.
+ * Scanner results cannot unlock application.
  *
  * This defends against prompt-injection getting TITAN to write credentials
  * into its own source tree or pull in incompatible licenses.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync } from 'fs';
+import { basename, join } from 'path';
 import logger from '../utils/logger.js';
 
 const COMPONENT = 'StagingScanners';
@@ -114,7 +114,7 @@ function scanContent(content: string, path: string): ScanFinding[] {
                 line: i + 1,
                 pattern: p.name,
                 severity: p.severity,
-                match: m[0].slice(0, 80),
+                match: '[REDACTED]',
                 kind: 'secret',
             });
         }
@@ -144,17 +144,62 @@ export interface BundleScanResult {
     mediumSeverityCount: number;
     scannedFiles: number;
     shouldBlock: boolean;
+    /** Explicit asset/metadata exclusions; their contents were not scanned. */
+    excludedFiles: string[];
+}
+
+export class StagingScanError extends Error {
+    constructor(public readonly code: string, message: string) { super(message); this.name = 'StagingScanError'; }
+}
+
+const MAX_SOURCE_BYTES = 5 * 1024 * 1024;
+const TEXT_SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rs|go|sh|bash|sql|md|mdx|json|jsonc|yaml|yml|toml|ini|env|txt|xml|html|css|scss|less|svelte|vue|svg|lock|c|h|cpp|hpp|cs|java|kt|rb|lua|swift|graphql|gql|conf|cfg|service|properties)$/i;
+// Images, fonts and media are explicit content exclusions, not clean scans.
+const BINARY_ASSET = /\.(png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|mp3|wav|ogg|mp4|webm|mov)$/i;
+
+function readStagedSource(file: string): string {
+    let fd: number | undefined;
+    try {
+        fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        const before = fstatSync(fd);
+        if (!before.isFile()) throw new StagingScanError('STAGING_SCAN_UNSAFE_ENTRY', `Expected regular staged file: ${file}`);
+        if (before.size > MAX_SOURCE_BYTES) throw new StagingScanError('STAGING_SCAN_TOO_LARGE', `Staged source exceeds scanner size limit: ${file}`);
+        const buffer = Buffer.alloc(before.size + 1);
+        let bytes = 0;
+        while (bytes < buffer.length) {
+            const count = readSync(fd, buffer, bytes, buffer.length - bytes, null);
+            if (!count) break;
+            bytes += count;
+        }
+        const after = fstatSync(fd);
+        if (bytes !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+            throw new StagingScanError('STAGING_SCAN_CHANGED', `Staged source changed during scanning: ${file}`);
+        }
+        return buffer.subarray(0, bytes).toString('utf8');
+    } catch (error) {
+        if (error instanceof StagingScanError) throw error;
+        throw new StagingScanError('STAGING_SCAN_UNAVAILABLE', `Cannot read staged source: ${file}`);
+    } finally { if (fd !== undefined) closeSync(fd); }
 }
 
 function listFilesRecursive(dir: string, acc: string[] = []): string[] {
-    if (!existsSync(dir)) return acc;
-    for (const entry of readdirSync(dir)) {
+    let entries: string[];
+    try {
+        if (!lstatSync(dir).isDirectory()) throw new Error('not a regular directory');
+        entries = readdirSync(dir);
+    } catch { throw new StagingScanError('STAGING_SCAN_UNAVAILABLE', `Cannot enumerate staged directory: ${dir}`); }
+    for (const entry of entries) {
         const p = join(dir, entry);
         try {
-            const st = statSync(p);
+            const st = lstatSync(p);
+            if (st.isSymbolicLink()) throw new StagingScanError('STAGING_SCAN_UNSAFE_ENTRY', `Symlink is not a regular file/directory in staging: ${p}`);
             if (st.isDirectory()) listFilesRecursive(p, acc);
-            else acc.push(p);
-        } catch { /* ok */ }
+            else if (st.isFile()) acc.push(p);
+            else throw new StagingScanError('STAGING_SCAN_UNSAFE_ENTRY', `Expected regular file/directory in staging: ${p}`);
+        } catch (error) {
+            if (error instanceof StagingScanError) throw error;
+            throw new StagingScanError('STAGING_SCAN_UNAVAILABLE', `Cannot inspect staged entry: ${p}`);
+        }
     }
     return acc;
 }
@@ -162,18 +207,18 @@ function listFilesRecursive(dir: string, acc: string[] = []): string[] {
 export function scanBundle(bundleDir: string): BundleScanResult {
     const allFiles = listFilesRecursive(bundleDir);
     const findings: ScanFinding[] = [];
+    const excludedFiles: string[] = [];
     let scannedFiles = 0;
 
     for (const file of allFiles) {
-        if (file.endsWith('.json') && file.endsWith('bundle.json')) continue; // skip our metadata
-        // Only scan text-ish files
-        if (!/\.(ts|tsx|js|jsx|py|rs|go|sh|bash|sql|md|json|yaml|yml|toml|ini|env|txt|xml|html)$/i.test(file)) continue;
-        try {
-            const content = readFileSync(file, 'utf-8');
-            if (content.length > 5 * 1024 * 1024) continue; // skip >5MB files
-            scannedFiles++;
-            findings.push(...scanContent(content, file));
-        } catch { /* ok */ }
+        if (file === join(bundleDir, 'bundle.json') || BINARY_ASSET.test(file)) { excludedFiles.push(file); continue; }
+        const name = basename(file);
+        if (!TEXT_SOURCE.test(file) && !/^(Dockerfile|Makefile|LICENSE|NOTICE|\.env(?:\..*)?|\.gitignore|\.npmrc)$/i.test(name)) {
+            throw new StagingScanError('STAGING_SCAN_UNSUPPORTED_FILE', `Unsupported staged file format requires review: ${file}`);
+        }
+        const content = readStagedSource(file);
+        scannedFiles++;
+        findings.push(...scanContent(content, file));
     }
 
     const highSeverityCount = findings.filter(f => f.severity === 'high').length;
@@ -183,5 +228,5 @@ export function scanBundle(bundleDir: string): BundleScanResult {
     if (findings.length > 0) {
         logger.info(COMPONENT, `Bundle scan: ${scannedFiles} files, ${highSeverityCount} high, ${mediumSeverityCount} medium findings`);
     }
-    return { findings, highSeverityCount, mediumSeverityCount, scannedFiles, shouldBlock };
+    return { findings, highSeverityCount, mediumSeverityCount, scannedFiles, shouldBlock, excludedFiles };
 }
