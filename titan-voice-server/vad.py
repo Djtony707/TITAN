@@ -9,6 +9,7 @@ from config import cfg
 
 # Load model once at module level
 _vad_model = None
+MAX_UTTERANCE_SAMPLES = 30 * cfg.STT_SAMPLE_RATE
 
 def _get_model():
     global _vad_model
@@ -30,6 +31,7 @@ class VoiceActivityDetector:
         self._silence_start: float | None = None
         self._audio_buffer: list[np.ndarray] = []
         self._speech_buffer: list[np.ndarray] = []
+        self._speech_samples = 0
 
     def reset(self):
         """Reset VAD state for a new session."""
@@ -38,6 +40,14 @@ class VoiceActivityDetector:
         self._silence_start = None
         self._audio_buffer.clear()
         self._speech_buffer.clear()
+        self._speech_samples = 0
+
+    def _append_speech(self, window):
+        self._speech_samples += len(window)
+        if self._speech_samples > MAX_UTTERANCE_SAMPLES:
+            self.reset()
+            raise ValueError("Voice utterance exceeds 30 seconds.")
+        self._speech_buffer.append(window)
 
     def process_chunk(self, pcm: bytes) -> dict:
         """
@@ -67,13 +77,14 @@ class VoiceActivityDetector:
                 if not self.is_speaking:
                     self.is_speaking = True
                     self._speech_buffer.extend(self._audio_buffer)
+                    self._speech_samples = sum(len(part) for part in self._speech_buffer)
                     self._audio_buffer.clear()
                 self._silence_start = None
-                self._speech_buffer.append(window)
+                self._append_speech(window)
                 result["speaking"] = True
             else:
                 if self.is_speaking:
-                    self._speech_buffer.append(window)
+                    self._append_speech(window)
                     if self._silence_start is None:
                         self._silence_start = time.monotonic()
                     elif (time.monotonic() - self._silence_start) * 1000 >= cfg.VAD_SILENCE_MS:
@@ -84,6 +95,7 @@ class VoiceActivityDetector:
                         result["speech_end"] = True
                         result["audio"] = np.concatenate(self._speech_buffer)
                         self._speech_buffer.clear()
+                        self._speech_samples = 0
                         self.model.reset_states()
                 else:
                     # Keep a small rolling buffer for pre-speech context

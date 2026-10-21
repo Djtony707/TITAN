@@ -6,6 +6,7 @@ Also exposes OpenAI-compatible REST API for TTS synthesis.
 import asyncio
 import glob
 import io
+import json
 import logging
 import os
 import time
@@ -13,14 +14,21 @@ import wave
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from config import cfg
+from auth import authorize_http, authorize_websocket, valid_voice, validate_security_config
 from vad import VoiceActivityDetector
 from stt import SpeechToText
 from tts import create_tts_engine, TTSEngine
+from pipeline import VoicePipeline
+
+MAX_BODY_BYTES = 32768
+MAX_TEXT_CHARS = 4000
+MAX_FRAME_BYTES = 65536
+MAX_CONTROL_BYTES = 8192
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("titan-voice")
@@ -52,6 +60,7 @@ def _load_models():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load models on startup, cleanup on shutdown."""
+    validate_security_config()
     _load_models()
     log.info("TITAN Voice Server ready on %s:%d", cfg.HOST, cfg.PORT)
     log.info("  TITAN API: %s", cfg.TITAN_API_URL)
@@ -65,22 +74,32 @@ app = FastAPI(title="TITAN Voice Server", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cfg.ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok",
-        "stt": "ready" if _stt else "loading",
-        "tts": "ready" if _tts else "loading",
-        "sttModel": cfg.STT_MODEL,
-        "ttsEngine": cfg.TTS_ENGINE,
-        "ttsVoice": cfg.TTS_VOICE,
-    }
+    return {"status": "ok"}
+
+
+async def bounded_json(request: Request):
+    if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+        raise HTTPException(415, "JSON is required.")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > MAX_BODY_BYTES:
+            raise HTTPException(413, "Request is too large.")
+        raw.extend(chunk)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeError, RecursionError):
+        raise HTTPException(400, "Invalid JSON.") from None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "A JSON object is required.")
+    return body
 
 
 # ── OpenAI-compatible TTS REST API ──────────────────────────────────────
@@ -88,17 +107,20 @@ async def health():
 @app.post("/v1/audio/speech")
 async def synthesize_speech(request: Request):
     """OpenAI-compatible TTS endpoint. Accepts {input, voice, response_format}."""
+    authorize_http(request)
     if not _tts:
         return Response(content="TTS not loaded", status_code=503)
 
-    body = await request.json()
+    body = await bounded_json(request)
     text = body.get("input", "")
     voice = body.get("voice", cfg.TTS_VOICE)
     # response_format: wav (default) or pcm
     response_format = body.get("response_format", "wav")
 
-    if not text:
-        return Response(content="No input text", status_code=400)
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_CHARS:
+        return Response(content="Input must contain 1-4000 characters", status_code=400)
+    if not valid_voice(voice) or not isinstance(response_format, str) or len(response_format) > 16:
+        return Response(content="Invalid voice or format", status_code=400)
 
     t0 = time.monotonic()
     audio = _tts.synthesize(text, voice)
@@ -124,8 +146,9 @@ async def synthesize_speech(request: Request):
 
 
 @app.get("/v1/audio/voices")
-async def list_voices():
+async def list_voices(request: Request):
     """List available TTS voices."""
+    authorize_http(request)
     # TADA: scan ~/.titan/voices/ for WAV files
     if hasattr(_tts, "available_voices"):
         return {"voices": _tts.available_voices()}
@@ -152,7 +175,12 @@ async def list_voices():
 
 @app.websocket("/ws/voice")
 async def voice_ws(ws: WebSocket):
-    await ws.accept()
+    try:
+        protocol = authorize_websocket(ws)
+    except (RuntimeError, ValueError):
+        await ws.close(code=1008)
+        return
+    await ws.accept(subprotocol=protocol)
     log.info("Voice WebSocket connected: %s", ws.client)
 
     # Each connection gets its own VAD state
@@ -162,15 +190,34 @@ async def voice_ws(ws: WebSocket):
     try:
         while True:
             message = await ws.receive()
+            if message["type"] == "websocket.disconnect":
+                break
 
             if "bytes" in message and message["bytes"]:
                 # Binary frame = PCM audio
+                if len(message["bytes"]) > MAX_FRAME_BYTES or len(message["bytes"]) % 2:
+                    await ws.close(code=1009)
+                    break
                 await pipeline.handle_audio(message["bytes"])
             elif "text" in message and message["text"]:
                 # JSON control message
+                if len(message["text"].encode("utf-8")) > MAX_CONTROL_BYTES:
+                    await ws.close(code=1009)
+                    break
+                try:
+                    control = json.loads(message["text"])
+                    if not isinstance(control, dict) or control.get("type") not in ("config", "interrupt"):
+                        raise ValueError("Invalid control.")
+                    if "ttsVoice" in control and not valid_voice(control["ttsVoice"]):
+                        raise ValueError("Invalid voice.")
+                except (ValueError, UnicodeError, RecursionError):
+                    await ws.close(code=1008)
+                    break
                 await pipeline.handle_control(message["text"])
     except WebSocketDisconnect:
         log.info("Voice WebSocket disconnected: %s", ws.client)
+    except ValueError:
+        await ws.close(code=1009)
     except Exception as e:
         log.error("Voice WebSocket error: %s", e)
     finally:
@@ -187,4 +234,6 @@ if __name__ == "__main__":
         log_level="info",
         ws_ping_interval=30,
         ws_ping_timeout=10,
+        ws_max_size=MAX_FRAME_BYTES,
+        access_log=False,
     )
