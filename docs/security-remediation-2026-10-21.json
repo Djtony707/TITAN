@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-21",
+  "repository": "Djtony707/TITAN",
+  "scope": "local security repair candidate; no publication or deployment",
+  "worktree": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security",
+  "branch": "codex/titan-security-2026-10-21",
+  "baseCommit": "63d0a7438192e9216faa39457124574ab53e6ecb",
+  "codeCommits": [
+    "e5bb94a9",
+    "9112954c",
+    "1f3edbab",
+    "d01a60cd",
+    "8738318f"
+  ],
+  "releaseReady": false,
+  "githubSnapshot": {
+    "dependabotOpen": {
+      "total": 138,
+      "critical": 6,
+      "high": 49,
+      "medium": 67,
+      "low": 16
+    },
+    "secretScanningOpen": 0,
+    "codeScanning": {
+      "status": "missing_coverage",
+      "apiStatus": 404,
+      "defaultSetup": "not-configured",
+      "workflowPresent": false
+    },
+    "alertsSuppressed": 0,
+    "remoteChanges": false,
+    "reviewedExistingPullRequests": [
+      174,
+      176
+    ]
+  },
+  "dependencyAudits": {
+    "root": {
+      "before": {
+        "total": 30,
+        "critical": 3,
+        "high": 15,
+        "moderate": 11,
+        "low": 1
+      },
+      "after": 0
+    },
+    "missionControl": {
+      "before": 6,
+      "after": 0
+    },
+    "voice": {
+      "before": {
+        "total": 105,
+        "critical": 3,
+        "high": 48,
+        "moderate": 46,
+        "low": 8
+      },
+      "after": {
+        "total": 1,
+        "high": 1,
+        "scope": "development"
+      },
+      "productionAfter": 0
+    },
+    "mcpExample": {
+      "before": "unlocked, unused vulnerable SDK and unavailable titan-agent requirement",
+      "after": 0
+    },
+    "combinedCommand": "npm run audit:security",
+    "combinedExitCode": 1
+  },
+  "unresolvedAdvisories": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "severity": "high",
+      "patchedRelease": null,
+      "scope": "voice development lint/build tooling",
+      "activeCommands": [
+        "pnpm lint",
+        "pnpm build"
+      ],
+      "productionReachable": false,
+      "paths": [
+        [
+          "eslint-config-next@15.5.28",
+          "@next/eslint-plugin-next@15.5.28",
+          "fast-glob@3.3.1",
+          "micromatch@4.0.8",
+          "braces@3.0.3"
+        ],
+        [
+          "eslint-config-next@15.5.28",
+          "@typescript-eslint/parser@8.32.1",
+          "@typescript-eslint/typescript-estree@8.32.1",
+          "fast-glob@3.3.3",
+          "micromatch@4.0.8",
+          "braces@3.0.3"
+        ]
+      ],
+      "mitigation": "Retain ESLint coverage; use only trusted root/project glob configuration; audit gate remains failing until a reviewed compatible fix is available.",
+      "suppressed": false
+    }
+  ],
+  "repairs": {
+    "mcpHttp": {
+      "bind": "127.0.0.1",
+      "maxBodyBytes": 1048576,
+      "browserOrigin": "rejected",
+      "fixtureTestsPassed": 5,
+      "stdioPreserved": true
+    },
+    "composeCredentials": {
+      "literalFieldsRemoved": [
+        "SONARR_API_KEY",
+        "RADARR_API_KEY",
+        "TMDB_API_KEY"
+      ],
+      "syntheticInterpolation": "passed",
+      "containersStarted": false,
+      "rotationCompleted": false
+    },
+    "discovery": {
+      "before": [
+        "--print",
+        "hello"
+      ],
+      "after": [
+        "--version"
+      ],
+      "explicitChatOptInPreserved": true,
+      "realCliUnitTestsReplaced": true,
+      "manualIntegrationGate": "environment authorization and explicit CLI flag plus named provider required"
+    }
+  },
+  "secrets": {
+    "scanner": "Gitleaks 8.30.1",
+    "redaction": 100,
+    "suppressionsAdded": 0,
+    "historyDetections": 30,
+    "currentBefore": 19,
+    "currentAfter": 16,
+    "currentRemaining": "15 synthetic test values and one secret-detection regex",
+    "historicalPotentialCredential": {
+      "file": "docs/HANDOFF-2026-05-03.md",
+      "line": 97,
+      "commit": "13791ec0fe41",
+      "activeStatus": "not tested"
+    },
+    "requiredFollowup": "Rotate previously embedded integration credentials if used; owner must validate and rotate historical opaque tokens if active.",
+    "currentTrackedFiles": 1848
+  },
+  "verification": {
+    "backendBuild": "passed",
+    "missionControlBuild": "passed",
+    "voiceBuild": "passed",
+    "rootTypecheck": "passed",
+    "voiceTypecheck": "passed",
+    "exampleTypecheck": "passed",
+    "rootLint": {
+      "errors": 0,
+      "warnings": 254
+    },
+    "voiceLint": "passed with warnings",
+    "compatibility": {
+      "simpleGit": "fixture passed, including disclosed unsafe-operation rejection",
+      "nodeLlamaCpp": "API exports load; no model loaded"
+    },
+    "evalGate": {
+      "suitesPassed": 11,
+      "suitesTotal": 11,
+      "casesPassed": 55,
+      "casesTotal": 57,
+      "thresholdSatisfied": true
+    },
+    "targetedConfigAndCliTests": {
+      "filesPassed": 6,
+      "casesPassed": 95
+    },
+    "fullSuite": {
+      "status": "passed",
+      "exitCode": 0,
+      "filesPassed": 415,
+      "filesTotal": 415,
+      "casesPassed": 8699,
+      "casesSkipped": 9,
+      "casesTotal": 8708,
+      "durationSeconds": 87.33,
+      "log": "/Users/michaelelliott/Documents/Codex/2026-10-20/you/work/titan-security-evidence/full-tests-final-isolated.log"
+    },
+    "baselineComparison": {
+      "configFailureReproducedOnOriginalMainLock": true,
+      "productDefaultsChanged": false,
+      "fixtureRepair": "isolated user config and provider-key inputs; original expectations retained"
+    },
+    "previousFullSuiteAttempts": {
+      "cleanExit": false,
+      "realCliProcessesStarted": true,
+      "inferenceOrCharges": "unknown",
+      "ownedProcessesStopped": true,
+      "logsPreserved": true
+    },
+    "gitNexus": {
+      "status": "unavailable",
+      "reason": "No TITAN index in available service"
+    },
+    "remainingOwnedMetaVrProcesses": 0
+  },
+  "releaseBlockers": [
+    "Unpatched high advisory in active voice development lint tooling",
+    "Historical credential exposure needs owner rotation/validation",
+    "CodeQL/code-scanning coverage is not configured",
+    "Explicit GitHub GO required before push"
+  ],
+  "publicationRule": {
+    "source": "/Users/michaelelliott/dev/TitanBot/TITAN-main/AGENTS.md:11",
+    "instruction": "No GitHub push, no npm publish, no @next tag without Tony's GO."
+  }
+}
