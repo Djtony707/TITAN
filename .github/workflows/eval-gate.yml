@@ -46,6 +46,7 @@ jobs:
       # Before this flag, every eval suite scored 0% because the router
       # had no provider with credentials to call. See src/providers/stub.ts.
       TITAN_STUB_PROVIDER: '1'
+      TITAN_BENCH: '1'
       TITAN_TELEMETRY_ENABLED: 'false'
 
     steps:
@@ -63,16 +64,55 @@ jobs:
       - name: Build backend
         run: npm run build
 
+      - name: Prepare isolated authenticated eval gateway
+        run: |
+          set -euo pipefail
+          umask 077
+          export TITAN_HOME="$(mktemp -d "${RUNNER_TEMP}/titan-eval.XXXXXX")"
+          node --input-type=module <<'NODE'
+          import { randomBytes } from 'node:crypto';
+          import { appendFileSync, writeFileSync } from 'node:fs';
+          import { createServer } from 'node:net';
+          import { join } from 'node:path';
+          const probe = createServer();
+          await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
+          const port = probe.address().port;
+          await new Promise(resolve => probe.close(resolve));
+          const token = randomBytes(32).toString('hex');
+          console.log(`::add-mask::${token}`);
+          const model = 'stub/echo';
+          writeFileSync(join(process.env.TITAN_HOME, 'titan.json'), JSON.stringify({
+            gateway: { host: '127.0.0.1', port, auth: { mode: 'token', token } },
+            agent: { model, modelAliases: { default: model, fast: model, smart: model, cheap: model } },
+            autonomy: { mode: 'supervised' },
+            autopilot: { enabled: false },
+            mesh: { enabled: false },
+            commandPost: { enabled: false },
+            memory: { vectorSearchEnabled: false },
+            channels: { messenger: { enabled: false }, twilio: { enabled: false } },
+            providers: { ollama: { enabled: false, baseUrl: 'http://127.0.0.1:0' } },
+            voice: { enabled: false, ttsUrl: 'http://127.0.0.1:0' },
+          }), { mode: 0o600 });
+          appendFileSync(process.env.GITHUB_ENV,
+            `TITAN_HOME=${process.env.TITAN_HOME}\nTITAN_EVAL_PORT=${port}\nTITAN_EVAL_URL=http://127.0.0.1:${port}\nTITAN_EVAL_TOKEN=${token}\n`);
+          NODE
+
       - name: Boot TITAN gateway
         run: |
+          set -euo pipefail
           # Background the gateway, wait for /api/health to come back 200.
           # v5.4.2: Increased to 180s — dependabot bumps added deps that extend
           # cold-start compilation time. 60s was generous for v5.3, insufficient
           # after 11 dep updates expanded the module graph.
-          node dist/cli/index.js gateway --skip-usable-check > /tmp/titan-gateway.log 2>&1 &
+          HOME="$TITAN_HOME" node dist/cli/index.js gateway --host 127.0.0.1 --port "$TITAN_EVAL_PORT" --skip-usable-check > /tmp/titan-gateway.log 2>&1 &
           echo $! > /tmp/titan-gateway.pid
           for i in $(seq 1 180); do
-            if curl -fs http://localhost:48420/api/health > /dev/null 2>&1; then
+            if ! kill -0 "$(cat /tmp/titan-gateway.pid)" 2>/dev/null; then
+              echo "::error::Isolated stub gateway exited before readiness"
+              tail -100 /tmp/titan-gateway.log
+              exit 1
+            fi
+            if curl -fs --max-time 2 -H "Authorization: Bearer $TITAN_EVAL_TOKEN" "$TITAN_EVAL_URL/api/health" > /dev/null 2>&1; then
               echo "Gateway ready after ${i}s"
               exit 0
             fi
@@ -102,7 +142,8 @@ jobs:
           for suite in $SUITES; do
             echo "── Running suite: $suite ──"
             HTTP_CODE=$(curl -s -o "/tmp/eval-results/${suite}.json" -w '%{http_code}' \
-              -X POST http://localhost:48420/api/eval/run \
+              --max-time 600 -X POST "$TITAN_EVAL_URL/api/eval/run" \
+              -H "Authorization: Bearer $TITAN_EVAL_TOKEN" \
               -H 'Content-Type: application/json' \
               -d "{\"suite\":\"$suite\"}")
             if [ "$HTTP_CODE" != "200" ]; then
@@ -115,7 +156,8 @@ jobs:
             TOTAL=$(jq '.total // 0' "/tmp/eval-results/${suite}.json")
             DURATION_MS=$(jq '.durationMs // 0' "/tmp/eval-results/${suite}.json")
             if [ "$TOTAL" = "0" ]; then
-              echo "::warning::Suite $suite has 0 cases — gateway returned empty result"
+              echo "::error::Suite $suite has 0 cases — gateway returned empty result"
+              FAILED_SUITES="$FAILED_SUITES $suite"
               continue
             fi
             RATE=$(awk "BEGIN {printf \"%.0f\", ($PASSED/$TOTAL)*100}")
@@ -143,7 +185,20 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/titan-gateway.pid ]; then
-            kill "$(cat /tmp/titan-gateway.pid)" 2>/dev/null || true
+            PID="$(cat /tmp/titan-gateway.pid)"
+            kill "$PID" 2>/dev/null || true
+            for i in $(seq 1 30); do
+              if ! kill -0 "$PID" 2>/dev/null; then break; fi
+              sleep 1
+            done
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "::error::Owned gateway did not stop; private profile retained for runner cleanup"
+              exit 1
+            fi
+          fi
+          # This is only the private mktemp profile created by this job, never an owner home.
+          if [[ "${TITAN_HOME:-}" == "$RUNNER_TEMP"/titan-eval.* ]]; then
+            rm -rf -- "$TITAN_HOME"
           fi
 
       - name: Upload eval results + gateway log
