@@ -11,6 +11,22 @@ function documentFor(content: string) {
 }
 
 describe('inert report HTML', () => {
+    it('keeps the dormant widget preview export inert with no iframe, source evaluation or network', async () => {
+        const fetch = vi.fn();
+        vi.stubGlobal('fetch', fetch);
+        const { createElement } = await import('../ui/node_modules/react/index.js');
+        const { renderToStaticMarkup } = await import('../ui/node_modules/react-dom/server.node.js');
+        const { WidgetSandbox } = await import('../ui/src/space-agent/WidgetSandbox.js');
+        const markup = renderToStaticMarkup(createElement(WidgetSandbox, { widget: {
+            id: 'fixture', title: 'Held fixture', code: 'SHOULD_NOT_EVALUATE',
+        }, onRemove: vi.fn() }));
+        expect(markup).toContain('security hold');
+        expect(markup).not.toContain('<iframe');
+        expect(markup).not.toContain('SHOULD_NOT_EVALUATE');
+        expect(markup).not.toContain('unpkg.com');
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('renders the actual viewer as an iframe without script or same-origin sandbox permission', async () => {
         dom = new JSDOM('', { url: 'http://127.0.0.1/' });
         vi.stubGlobal('window', dom.window);
