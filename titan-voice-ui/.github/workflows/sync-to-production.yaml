@@ -10,7 +10,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: livekit-examples/sandbox-deploy-action@v1
+      - uses: livekit-examples/sandbox-deploy-action@00b3e89699031469cd70fd7d4f1e101a0bc89d1d # v1
         with:
           production_branch: 'sandbox-production'
           token: ${{ secrets.GITHUB_TOKEN }}
