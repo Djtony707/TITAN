@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
-import { OdysseyAnnouncement } from '@/components/OdysseyAnnouncement';
+import { OdysseyAnnouncement } from '../OdysseyAnnouncement';
 import {
   Brain,
   ChevronDown,
