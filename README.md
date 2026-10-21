@@ -3,6 +3,10 @@
 > **TITAN** — A local-first AI agent framework that runs on your hardware, with your models, under your control. v8 makes it a **company**: hire specialists (each with its own model and harness), give them a shared brain, watch them earn autonomy — and stay in the loop without giving up control. `npm i -g titan-agent`
 > [//]: # (npm-text-end)
 
+> **TITAN is evolving into Odyssey.** Odyssey will be the next generation of TITAN when it releases. It is still in development, with supported local models and compatible cloud providers.
+>
+> **[Explore Odyssey](https://lakelogicai.net/) · [Register beta interest](https://lakelogicai.net/#beta) · [Get release updates](https://lakelogicai.net/#updates)**
+
 <div align="center">
 
 # TITAN
