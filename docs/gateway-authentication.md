@@ -6,6 +6,8 @@ Run `titan onboard`, enable authentication, select token or password, and supply
 
 The main gateway applies the same bearer/session authentication before body parsing or dispatch to `/api`, `/v1`, `/ollama`, `/paperclip`, `/mcp` and `/metrics`. This includes Paperclip management/UI proxies, Ollama model mutations and SSE endpoints. Static Mission Control files and the login page remain public. Password login returns a session token; native clients use that session or the configured gateway token. The built-in `/mcp` endpoint uses this gateway credential, without a second MCP token.
 
+Token-mode login returns the already-validated configured token, matching its native bearer contract and lifetime until configuration changes. It does not create an unusable password-mode session or claim a session expiry. Password-mode login continues to create a separate expiring session. Login responses use `Cache-Control: no-store`.
+
 Rate limits identify the connected socket peer, never a client-supplied forwarding header. Login, message, voice and other limited operations use independent quotas; ordinary message requests cannot consume the login quota. Clients behind a reverse proxy share that proxy's peer quota. Per-client trusted proxy attribution requires a separate explicit deployment review; arbitrary `X-Forwarded-For`, `Forwarded` or `X-Real-IP` values do not establish identity.
 
 An embedded Paperclip page that cannot supply the gateway bearer receives 401. The proxy strips gateway authorization, cookies, proxy credentials, referrers and original-URL forwarding headers; it removes the gateway `token` query parameter and refuses upstream redirects. It does not invent authentication for a sidecar.

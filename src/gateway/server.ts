@@ -1241,6 +1241,7 @@ export async function startGateway(options?: { port?: number; host?: string; ver
   });
 
   app.post('/api/login', rateLimit(60000, 5), (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const cfg = loadConfig();
     const auth = cfg.gateway.auth;
     if (auth?.mode === 'none') {
@@ -1253,6 +1254,9 @@ export async function startGateway(options?: { port?: number; host?: string; ver
     if (auth.mode === 'password' && auth.password && password && safeCompare(password, auth.password)) valid = true;
     if (auth.mode === 'token' && auth.token && password && safeCompare(password, auth.token)) valid = true;
     if (!valid) { res.status(401).json({ error: 'Invalid password' }); return; }
+    // Token mode authenticates the configured token itself. A random password
+    // session would be rejected by that mode's existing bearer validator.
+    if (auth.mode === 'token') { res.json({ token: auth.token }); return; }
     const token = randomBytes(32).toString('hex');
     authTokens.set(token, { createdAt: Date.now(), userId: `user-${token.slice(0, 8)}` });
     saveAuthTokens();

@@ -12,6 +12,7 @@ import { createHmac } from 'crypto';
 import { MessengerChannel } from '../src/channels/messenger.js';
 import { LineChannel } from '../src/channels/line.js';
 import { WebSocket } from 'ws';
+import * as helpers from '../src/utils/helpers.js';
 import type * as TwilioVoice from '../src/channels/twilio-voice.js';
 
 const { TEST_PORT } = vi.hoisted(() => ({ TEST_PORT: 59430 }));
@@ -626,7 +627,9 @@ describe('Gateway E2E — /api/message lifecycle', () => {
             }
             const login = await fetch(`${BASE}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'é' }) });
             expect(login.status).toBe(200);
+            expect(login.headers.get('cache-control')).toBe('no-store');
             const body = await login.json() as { token: string };
+            expect(body.token).not.toBe('é');
             expect((await fetch(`${BASE}/api/config`, { headers: { Authorization: `Bearer ${body.token}` } })).status).toBe(200);
         });
 
@@ -897,6 +900,30 @@ describe('Gateway login rate-limit authority', () => {
             await response.body?.cancel();
         }
         expect(mockRouteMessage).not.toHaveBeenCalled();
+    });
+
+    it('returns a usable token from token-mode login and preserves the native bearer contract', async () => {
+        const writes = vi.spyOn(helpers, 'atomicWriteJsonFile');
+        try {
+            const invalid = await fetch(`${loginBase}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'wrong fixture credential' }),
+            });
+            expect(invalid.status).toBe(401);
+            expect(await invalid.json()).not.toHaveProperty('token');
+            const response = await fetch(`${loginBase}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: credential }),
+            });
+            expect(response.status).toBe(200);
+            expect(response.headers.get('cache-control')).toBe('no-store');
+            const login = await response.json() as { token: string };
+            const signedIn = await fetch(`${loginBase}/api/config`, { headers: { Authorization: `Bearer ${login.token}` } });
+            expect(signedIn.status).toBe(200);
+            await signedIn.body?.cancel();
+            const native = await fetch(`${loginBase}/api/config`, { headers: { Authorization: `Bearer ${credential}` } });
+            expect(native.status).toBe(200);
+            await native.body?.cancel();
+            expect(writes.mock.calls.some(([path]) => path.endsWith('auth-tokens.json'))).toBe(false);
+        } finally { writes.mockRestore(); }
     });
 
     it('does not spend the login quota on authenticated message requests', async () => {
