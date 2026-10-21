@@ -16,17 +16,19 @@ export function useExternalCliFixture() {
 const cli = process.argv[2];
 const args = process.argv.slice(3);
 let input = '';
-if (cli === 'codex') for await (const chunk of process.stdin) input += chunk;
+if (cli === 'codex' || cli === 'aider') for await (const chunk of process.stdin) input += chunk;
 appendFileSync(process.env.TITAN_CLI_FIXTURE_RECORD, JSON.stringify({ cli, args, input, apiUrl: process.env.TITAN_API_URL, runId: process.env.TITAN_RUN_ID, issueId: process.env.TITAN_ISSUE_ID }) + '\\n');
 if (process.env.TITAN_CLI_FIXTURE_MODE === 'timeout') { setInterval(() => {}, 1000); }
 else if (process.env.TITAN_CLI_FIXTURE_MODE === 'error') { console.error('synthetic-cli-error'); process.exitCode = 7; }
+else if (process.env.TITAN_CLI_FIXTURE_MODE === 'large-output') console.log('x'.repeat(70 * 1024));
 else if (cli === 'codex') console.log(JSON.stringify({ result: 'synthetic-codex-result' }));
+else if (cli === 'aider') console.log('synthetic-aider-result');
 else console.log('synthetic-claude-result');
 `;
         const payload = join(directory, 'cli-fixture.mjs');
         writeFileSync(payload, source);
         const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-        for (const cli of ['claude', 'codex']) {
+        for (const cli of ['claude', 'codex', 'aider']) {
             // A shebang cannot quote a Node executable path containing spaces.
             const launcher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(payload)} ${shellQuote(cli)} "$@"\n`;
             writeFileSync(join(directory, cli), launcher, { mode: 0o755 });
@@ -42,7 +44,7 @@ else console.log('synthetic-claude-result');
     });
     return {
         directory: () => directory,
-        mode: (value: 'success' | 'error' | 'timeout') => vi.stubEnv('TITAN_CLI_FIXTURE_MODE', value),
+        mode: (value: 'success' | 'error' | 'timeout' | 'large-output') => vi.stubEnv('TITAN_CLI_FIXTURE_MODE', value),
         invocations: (): Invocation[] => existsSync(record) ? readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [],
     };
 }

@@ -7,7 +7,7 @@
 import type { ExternalAdapter } from './base.js';
 import { codexAdapter } from './codex.js';
 import { bashAdapter } from './bash.js';
-import { claudeCodeAdapter } from './claudeCode.js';
+import { assertExternalAgentAllowed, isClaudeCodeAgent } from '../../security/externalAgentPolicy.js';
 
 export type { ExternalAdapter, AdapterContext, AdapterResult } from './base.js';
 
@@ -17,11 +17,13 @@ const adapters = new Map<string, ExternalAdapter>();
 
 /** Register an adapter (for plugins to add custom adapters) */
 export function registerAdapter(adapter: ExternalAdapter): void {
+    assertExternalAgentAllowed(adapter.type);
     adapters.set(adapter.type, adapter);
 }
 
 /** Get an adapter by type string */
 export function getAdapter(type: string): ExternalAdapter | null {
+    if (isClaudeCodeAgent(type)) return null;
     return adapters.get(type) || null;
 }
 
@@ -34,4 +36,3 @@ export function listAdapters(): string[] {
 
 registerAdapter(codexAdapter);
 registerAdapter(bashAdapter);
-registerAdapter(claudeCodeAdapter);

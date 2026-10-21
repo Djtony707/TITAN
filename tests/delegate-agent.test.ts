@@ -21,12 +21,12 @@ describe('detectAvailableAgents', () => {
 
 describe('buildAgentCommand', () => {
     it('builds a non-interactive command for each known agent', () => {
-        expect(buildAgentCommand('codex', 'fix the bug')).toEqual({ cmd: 'codex', args: ['exec', '--full-auto', 'fix the bug'] });
+        expect(buildAgentCommand('codex', 'fix the bug')).toEqual({ cmd: 'codex', args: ['exec', '--full-auto', '-'], input: 'fix the bug' });
         expect(buildAgentCommand('aider', 'add tests')).toMatchObject({ cmd: 'aider' });
         expect(buildAgentCommand('goose', 'refactor')).toMatchObject({ cmd: 'goose' });
     });
     it('REFUSES to delegate to Claude Code (standing rule)', () => {
-        expect(() => buildAgentCommand('claude', 'do it')).toThrow(/Claude Code is not permitted/i);
+        expect(() => buildAgentCommand('claude', 'do it')).toThrow(/disabled by TITAN standing policy/);
         expect(() => buildAgentCommand('claude-code', 'do it')).toThrow();
     });
     it('throws on an unknown agent', () => {
@@ -34,6 +34,19 @@ describe('buildAgentCommand', () => {
     });
     it('requires a non-empty task', () => {
         expect(() => buildAgentCommand('codex', '')).toThrow(/task is required/i);
+    });
+    it.each(['codex', 'aider', 'goose', 'gemini', 'opencode'])('binds leading task options literally for %s', (agent) => {
+        const task = '--dangerously-bypass-approvals-and-sandbox';
+        const command = buildAgentCommand(agent, task);
+        if (agent === 'codex') {
+            expect(command).toEqual({ cmd: 'codex', args: ['exec', '--full-auto', '-'], input: task });
+        } else if (agent === 'opencode') {
+            expect(command.args).toEqual(['run', '--', task]);
+        } else {
+            const option = { aider: '--message', goose: '--text', gemini: '--prompt' }[agent];
+            expect(command.args).toContain(`${option}=${task}`);
+            expect(command.args).not.toContain(task);
+        }
     });
 });
 

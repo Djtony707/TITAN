@@ -1428,9 +1428,8 @@ export async function approveApproval(id: string, decidedBy: string, note?: stri
         approval.type === 'custom'
         && (approval.payload as Record<string, unknown>)?.kind === 'self_mod_pr'
     ) {
-        // v4.9.0-local.8: apply the staged self-modification PR. Fire-and-forget
-        // so the approval call returns immediately; errors land in logs + a
-        // follow-up activity entry.
+        // Human approval is recorded, but cannot override the runtime security
+        // hold. Preserve the staged candidate and report the blocked action.
         const payload = approval.payload as Record<string, unknown>;
         const goalId = payload.goalId as string | undefined;
         if (goalId) {
@@ -1439,42 +1438,24 @@ export async function approveApproval(id: string, decidedBy: string, note?: stri
                     const { applyStagedPR } = await import('./selfModStaging.js');
                     const result = await applyStagedPR(goalId);
                     const { recordEpisode } = await import('../memory/episodic.js');
-                    // v4.10.0-local polish: surface Opus verdict in activity + episode
-                    const opusNote = result.opusReview
-                        ? ` · Opus ${result.opusReview.verdict} (conf ${result.opusReview.confidence.toFixed(2)})`
-                        : '';
-                    if (result.blockedByReview && result.opusReview) {
-                        recordEpisode({
-                            kind: 'self_mod_pr_rejected',
-                            summary: `Self-mod PR BLOCKED by Opus review (goal ${goalId}): ${result.opusReview.reasoning}`,
-                            detail: `Verdict: ${result.opusReview.verdict}\nConcerns:\n${result.opusReview.concerns.join('\n- ')}\nSuggestions:\n${result.opusReview.suggestions.join('\n- ')}`,
-                            tags: ['self-mod', 'pr-blocked-by-review', goalId],
-                        });
-                        addActivity({
-                            type: 'error',
-                            message: `Self-mod PR blocked by Opus review for goal ${goalId}: ${result.opusReview.reasoning.slice(0, 120)}`,
-                            metadata: { approvalId: id, goalId, opusReview: result.opusReview },
-                        });
-                        return;
-                    }
                     recordEpisode({
-                        kind: 'self_mod_pr_merged',
-                        summary: `Self-mod PR applied: ${result.applied.length} file(s) landed, ${result.failed.length} failed (goal ${goalId})${opusNote}`,
-                        detail: `Applied: ${result.applied.join(', ')}\nFailed: ${result.failed.map(f => `${f.path} (${f.error})`).join(', ') || 'none'}\n${result.opusReview ? `Opus reasoning: ${result.opusReview.reasoning}` : ''}`,
-                        tags: ['self-mod', 'pr-merged', goalId],
+                        kind: 'self_mod_pr_rejected',
+                        summary: `Self-mod PR blocked by runtime security hold (goal ${goalId})`,
+                        detail: result.failed.map(f => f.error).join('\n'),
+                        tags: ['self-mod', 'pr-security-hold', goalId],
                     });
                     addActivity({
-                        type: 'goal_completed',
-                        message: `Self-mod PR applied for goal ${goalId}: ${result.applied.length} file(s) → ${resolveSelfModTargetSafe()}, ${result.failed.length} failures${opusNote}`,
-                        metadata: { approvalId: id, goalId, applied: result.applied, failed: result.failed, opusReview: result.opusReview },
+                        type: 'error',
+                        message: `Self-mod PR remains staged: runtime apply is disabled by a security hold (goal ${goalId})`,
+                        metadata: { approvalId: id, goalId, failures: result.failed, blockedBySecurityHold: true },
                     });
                 } catch (err) {
-                    logger.warn('CommandPost', `[SelfModApply] Failed: ${(err as Error).message}`);
-                    addActivity({ type: 'error', message: `Self-mod PR apply failed for goal ${goalId}: ${(err as Error).message}`, metadata: { approvalId: id, goalId } });
+                    logger.warn('CommandPost', `[SelfModApply] Held candidate reporting failed: ${(err as Error).message}`);
+                    addActivity({ type: 'error', message: `Self-mod PR remains held for goal ${goalId}: ${(err as Error).message}`, metadata: { approvalId: id, goalId } });
                 }
             })();
         }
-        addActivity({ type: 'goal_completed', message: `Self-mod PR approved by ${decidedBy} — applying…`, metadata: { approvalId: id, goalId } });
+        addActivity({ type: 'error', message: `Self-mod PR approval recorded for ${decidedBy}; runtime apply remains disabled by a security hold`, metadata: { approvalId: id, goalId, blockedBySecurityHold: true } });
     } else if (approval.type === 'custom' && (approval.payload as { kind?: string }).kind === 'driver_blocked') {
         const payload = approval.payload as { goalId?: string; goalTitle?: string };
         if (payload.goalId) {
@@ -1496,17 +1477,6 @@ export async function approveApproval(id: string, decidedBy: string, note?: stri
     }
 
     return approval;
-}
-
-// Small helper so the async apply block can log the resolved target without
-// threading loadConfig through — silently falls back to the default if the
-// config isn't loaded yet for any reason.
-function resolveSelfModTargetSafe(): string {
-    try {
-        const c = loadConfig();
-        const sm = (c.autonomy as unknown as { selfMod?: { target?: string } }).selfMod;
-        return sm?.target ?? '/opt/TITAN';
-    } catch { return '/opt/TITAN'; }
 }
 
 /**

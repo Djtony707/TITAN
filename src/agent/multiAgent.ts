@@ -146,7 +146,7 @@ export interface RouteMessageOptions {
     sessionId?: string;
     /** Override the agent's default model for this call only. */
     modelOverride?: string;
-    /** Provider-specific opt-ins (e.g. allowClaudeCode). Forwarded to ChatOptions. */
+    /** Legacy provider options; they cannot override the Claude CLI prohibition. */
     providerOptions?: Record<string, unknown>;
     /**
      * Additive system-prompt block sent only with this message. Used by

@@ -15,6 +15,17 @@ const matrixSdk = vi.hoisted(() => {
     return { client, createClient: vi.fn(() => client) };
 });
 vi.mock('matrix-js-sdk', () => ({ createClient: matrixSdk.createClient }));
+const whatsappSdk = vi.hoisted(() => {
+    const state = {};
+    const saveCreds = vi.fn();
+    const socket = { ev: { on: vi.fn() }, end: vi.fn() };
+    return { state, saveCreds, socket, makeSocket: vi.fn(() => socket), useAuth: vi.fn().mockResolvedValue({ state, saveCreds }) };
+});
+vi.mock('@whiskeysockets/baileys', () => ({
+    default: whatsappSdk.makeSocket,
+    useMultiFileAuthState: whatsappSdk.useAuth,
+    DisconnectReason: { loggedOut: 401 },
+}));
 
 // ── Common mocks ──────────────────────────────────────────────────────────
 
@@ -755,6 +766,8 @@ describe('WhatsAppChannel', () => {
 
     beforeEach(async () => {
         vi.resetModules();
+        vi.clearAllMocks();
+        whatsappSdk.useAuth.mockResolvedValue({ state: whatsappSdk.state, saveCreds: whatsappSdk.saveCreds });
         currentConfig = makeConfig();
         const mod = await import('../src/channels/whatsapp.js');
         WhatsAppChannelClass = mod.WhatsAppChannel;
@@ -772,14 +785,31 @@ describe('WhatsAppChannel', () => {
         expect(ch.getStatus().connected).toBe(false);
     });
 
-    it('connect when enabled should attempt to load Baileys and handle import failure', async () => {
-        const logger = (await import('../src/utils/logger.js')).default;
+    it('configures a controlled Baileys client and handles connection state without a websocket', async () => {
         currentConfig = makeConfig({ whatsapp: { enabled: true } });
         const ch = new WhatsAppChannelClass();
         await ch.connect();
-        // Baileys is not installed in test
+        expect(whatsappSdk.useAuth).toHaveBeenCalledWith('/tmp/titan-test-channels/whatsapp-auth');
+        expect(whatsappSdk.makeSocket).toHaveBeenCalledWith({ auth: whatsappSdk.state, printQRInTerminal: true });
+        expect(whatsappSdk.socket.ev.on).toHaveBeenCalledWith('creds.update', whatsappSdk.saveCreds);
+        expect(whatsappSdk.socket.ev.on).toHaveBeenCalledWith('messages.upsert', expect.any(Function));
         expect(ch.getStatus().connected).toBe(false);
-        expect(logger.error).toHaveBeenCalled();
+        const handler = whatsappSdk.socket.ev.on.mock.calls.find(call => call[0] === 'connection.update')![1] as (update: Record<string, unknown>) => void;
+        handler({ connection: 'open' });
+        expect(ch.getStatus().connected).toBe(true);
+        await ch.disconnect();
+        expect(whatsappSdk.socket.end).toHaveBeenCalledOnce();
+        expect(ch.getStatus().connected).toBe(false);
+    });
+
+    it('handles controlled SDK initialization failures', async () => {
+        const logger = (await import('../src/utils/logger.js')).default;
+        whatsappSdk.useAuth.mockRejectedValueOnce(new Error('synthetic-sdk-error'));
+        currentConfig = makeConfig({ whatsapp: { enabled: true } });
+        const ch = new WhatsAppChannelClass();
+        await ch.connect();
+        expect(ch.getStatus().connected).toBe(false);
+        expect(logger.error).toHaveBeenCalledWith('WhatsApp', 'Failed to connect: synthetic-sdk-error');
     });
 
     it('disconnect when socket is null should be a no-op', async () => {

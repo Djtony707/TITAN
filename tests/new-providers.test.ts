@@ -654,10 +654,12 @@ describe('Router — New Provider Aliases', () => {
     });
 
     describe('getAllProviders()', () => {
-        // 6 core (incl. the moa virtual provider, v7.1) + 32 compat = 38 total
-        it('should return 38 total providers (6 core incl. moa + 32 compat)', () => {
+        // 5 usable core providers (including moa) + 32 compat = 37; Claude CLI is disabled.
+        it('should return 37 usable providers and exclude disabled Claude CLI', () => {
             const all = getAllProviders();
-            expect(all.size).toBe(38);
+            expect(all.size).toBe(37);
+            expect(all.has('claude-code')).toBe(false);
+            expect(all.has('anthropic')).toBe(true);
         });
 
         it('should include venice, bedrock, and litellm in the provider map', () => {

@@ -15,6 +15,7 @@ import { randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import { loadConfig, updateConfig } from '../config/config.js';
 import { assertSecureNodeRuntime } from '../utils/nodeRuntime.js';
+import { atomicWriteJsonFile } from '../utils/helpers.js';
 import type { ProviderConfig } from '../config/schema.js';
 import { loadProfile, saveProfile, type PersonalProfile } from '../memory/relationship.js';
 import { processMessage } from '../agent/agent.js';
@@ -455,7 +456,7 @@ function saveAuthTokens(): void {
         for (const [token, entry] of authTokens) {
             entries.push({ token, createdAt: entry.createdAt, userId: entry.userId });
         }
-        fs.writeFileSync(AUTH_TOKENS_PATH, JSON.stringify(entries, null, 2));
+        atomicWriteJsonFile(AUTH_TOKENS_PATH, entries, { mode: 0o600, directoryMode: 0o700 });
     } catch {
         // Best-effort persistence
     }

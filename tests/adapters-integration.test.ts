@@ -139,24 +139,9 @@ describe('Bash Adapter — Environment Variables', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    const adapter = getAdapter('claude-code')!;
-
-    it('should be registered with correct type', () => {
-        expect(adapter).toBeDefined();
-        expect(adapter.type).toBe('claude-code');
-        expect(adapter.displayName).toBe('Claude Code');
-    });
-
-    it('should have execute method', () => {
-        expect(typeof adapter.execute).toBe('function');
-    });
-
-    it('should report a controlled CLI failure', async () => {
-        cliFixture.mode('error');
-        const result = await adapter.execute(makeCtx('echo test', { timeoutMs: 5_000 }));
-        expect(result.success).toBe(false);
-        expect(result.exitCode).toBe(1);
-        expect(result.content).toContain('synthetic-cli-error');
+    it('is unavailable from the runtime registry', () => {
+        expect(getAdapter('claude-code')).toBeNull();
+        expect(cliFixture.invocations()).toEqual([]);
     });
 });
 

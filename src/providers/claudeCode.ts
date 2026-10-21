@@ -1,17 +1,12 @@
 /**
  * TITAN — Claude Code Provider (v4.10.0-local)
  *
- * Bridges to Anthropic's Claude Code CLI. Requires explicit user opt-in
- * via `providerOptions.allowClaudeCode: true` on every call — autonomous
- * paths are blocked by design to prevent runaway CLI spend.
+ * Disabled compatibility provider. Standing runtime policy prohibits execution;
+ * filesystem health metadata only reports whether an executable is installed.
  */
 import { accessSync, constants, statSync } from 'fs';
-import { spawn } from 'child_process';
 import { LLMProvider, type ChatOptions, type ChatResponse, type ChatStreamChunk } from './base.js';
-import { isClaudeCodeAllowed } from './base.js';
-import logger from '../utils/logger.js';
-
-const COMPONENT = 'ClaudeCode';
+import { CLAUDE_CODE_DISABLED_MESSAGE } from '../security/externalAgentPolicy.js';
 
 function findClaudeBinary(): string | null {
     const pathDirs = (process.env.PATH || '').split(':');
@@ -30,64 +25,18 @@ function findClaudeBinary(): string | null {
 
 export class ClaudeCodeProvider extends LLMProvider {
     name = 'claude-code';
-    displayName = 'Claude Code (requires MAX plan)';
+    displayName = 'Claude Code (disabled by policy)';
 
-    async listModels(): Promise<string[]> {
-        return [
-            'claude-code/default',
-            'claude-code/sonnet-4.5',
-            'claude-code/opus-4.6',
-            'claude-code/haiku-4.5',
-            'claude-code/sonnet-4.6',
-            'claude-code/haiku-4.6',
-            'claude-code/opus-4.7',
-        ];
-    }
+    isConfigured(): boolean { return false; }
+
+    async listModels(): Promise<string[]> { return []; }
 
     async healthCheck(): Promise<boolean> {
         return findClaudeBinary() !== null;
     }
 
-    async chat(options: ChatOptions): Promise<ChatResponse> {
-        if (!isClaudeCodeAllowed(options)) {
-            throw new Error(
-                'Claude Code blocked for autonomous use. ' +
-                'Set providerOptions.allowClaudeCode: true when the user explicitly picks a claude-code model.',
-            );
-        }
-
-        const binary = findClaudeBinary();
-        if (!binary) {
-            throw new Error('Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code');
-        }
-
-        const prompt = options.messages.map(m =>
-            typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-        ).join('\n\n');
-
-        return new Promise((resolve, reject) => {
-            const child = spawn(binary, ['--print', prompt], {
-                timeout: options.maxTokens ? options.maxTokens * 10 : 300_000,
-            });
-            let stdout = '';
-            let stderr = '';
-            child.stdout.on('data', (d) => { stdout += d; });
-            child.stderr.on('data', (d) => { stderr += d; });
-            child.on('error', (err) => reject(err));
-            child.on('close', (code) => {
-                if (code !== 0) {
-                    reject(new Error(`Claude Code exited ${code}: ${stderr}`));
-                    return;
-                }
-                resolve({
-                    id: `claude-${Date.now()}`,
-                    content: stdout.trim(),
-                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, measured: false },
-                    finishReason: 'stop',
-                    model: options.model || 'claude-code/default',
-                });
-            });
-        });
+    async chat(_options: ChatOptions): Promise<ChatResponse> {
+        throw new Error(CLAUDE_CODE_DISABLED_MESSAGE);
     }
 
     async *chatStream(options: ChatOptions): AsyncGenerator<ChatStreamChunk> {

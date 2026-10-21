@@ -32,19 +32,12 @@ describe('ClaudeCodeProvider', () => {
     it('has correct name + displayName', () => {
         expect(provider.name).toBe('claude-code');
         expect(provider.displayName).toContain('Claude Code');
-        expect(provider.displayName).toContain('MAX plan');
+        expect(provider.displayName).toContain('disabled');
     });
 
-    it('listModels returns claude-code/ prefixed aliases', async () => {
-        const models = await provider.listModels();
-        expect(models.length).toBeGreaterThanOrEqual(7);
-        expect(models).toContain('claude-code/sonnet-4.5');
-        expect(models).toContain('claude-code/opus-4.6');
-        expect(models).toContain('claude-code/haiku-4.5');
-        expect(models).toContain('claude-code/default');
-        for (const m of models) {
-            expect(m.startsWith('claude-code/')).toBe(true);
-        }
+    it('does not advertise prohibited CLI models as runnable', async () => {
+        expect(await provider.listModels()).toEqual([]);
+        expect(provider.isConfigured()).toBe(false);
     });
 
     it('healthCheck returns false when `claude` binary is not on PATH (CI env)', async () => {
@@ -86,11 +79,7 @@ describe('ClaudeCodeProvider', () => {
     });
 });
 
-// Regression tests for the v4.11.0 autonomous-burn gate.
-// Autonomous paths MUST NOT set the flag; user-initiated chat MAY.
-// The gate moved from ChatOptions.allowClaudeCode to
-// ChatOptions.providerOptions.allowClaudeCode in v4.12 with a
-// deprecation period; isClaudeCodeAllowed() reads both.
+// Standing policy has no runtime opt-in escape hatch.
 describe('isClaudeCodeAllowed (v4.11 gate)', () => {
     const baseOpts: ChatOptions = { messages: [] };
 
@@ -98,15 +87,15 @@ describe('isClaudeCodeAllowed (v4.11 gate)', () => {
         expect(isClaudeCodeAllowed(baseOpts)).toBe(false);
     });
 
-    it('accepts the preferred v4.12 providerOptions.allowClaudeCode=true', () => {
+    it('rejects the former providerOptions.allowClaudeCode=true escape hatch', () => {
         expect(isClaudeCodeAllowed({
             ...baseOpts,
             providerOptions: { allowClaudeCode: true },
-        })).toBe(true);
+        })).toBe(false);
     });
 
-    it('accepts the deprecated top-level allowClaudeCode=true (back-compat)', () => {
-        expect(isClaudeCodeAllowed({ ...baseOpts, allowClaudeCode: true })).toBe(true);
+    it('rejects the deprecated top-level allowClaudeCode=true escape hatch', () => {
+        expect(isClaudeCodeAllowed({ ...baseOpts, allowClaudeCode: true })).toBe(false);
     });
 
     it('rejects providerOptions without the flag', () => {
@@ -135,23 +124,16 @@ describe('isClaudeCodeAllowed (v4.11 gate)', () => {
     });
 });
 
-describe('Claude Code gate — spawnStream rejects without the flag', () => {
-    const provider = new ClaudeCodeProvider() as unknown as {
-        chat(opts: ChatOptions): Promise<unknown>;
-    };
-
-    it('throws on chat() without allowClaudeCode', async () => {
-        await expect(
-            provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-        ).rejects.toThrow(/Claude Code blocked for autonomous use/);
-        expect(cliFixture.invocations()).toEqual([]);
+describe('Claude Code execution is unconditionally prohibited', () => {
+    const provider = new ClaudeCodeProvider();
+    const flags = [{}, { allowClaudeCode: true }, { providerOptions: { allowClaudeCode: true } },
+        { allowClaudeCode: true, providerOptions: { allowClaudeCode: true } }];
+    it.each(flags)('rejects chat and streaming with legacy flags %j before any child process', async (flag) => {
+        const options = { messages: [{ role: 'user' as const, content: 'fixture task' }], ...flag };
+        await expect(provider.chat(options)).rejects.toThrow(/disabled by TITAN standing policy/);
+        await expect(async () => { for await (const _chunk of provider.chatStream(options)) { /* drain */ } }).rejects.toThrow(/disabled by TITAN standing policy/);
         expect(spawn).not.toHaveBeenCalled();
         expect(spawnSync).not.toHaveBeenCalled();
-    });
-
-    it('throws with the new providerOptions guidance in the error message', async () => {
-        await expect(
-            provider.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-        ).rejects.toThrow(/providerOptions\.allowClaudeCode/);
+        expect(cliFixture.invocations()).toEqual([]);
     });
 });

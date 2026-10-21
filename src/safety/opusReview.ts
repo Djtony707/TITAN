@@ -1,25 +1,11 @@
 /**
- * TITAN — Opus Review Gate (v4.10.0-local polish)
+ * TITAN — Optional staged-candidate review.
  *
- * Before a staged self_mod_pr applies to /opt/TITAN, send the diff to
- * Claude Opus (via OpenRouter) for a quality review. Opus looks for:
- *   - Correctness (does it do what the goal asked?)
- *   - Integration (are new modules wired into existing systems?)
- *   - Regressions (does it break anything obvious?)
- *   - Security (sanity check beyond the scanner)
- *   - Code quality (obvious bugs, missing error handling, etc.)
- *
- * Returns a structured verdict. Used in applyStagedPR before the copy
- * to live. If reject/needs_changes, the approval transitions to a new
- * blocked state with Opus's concerns in the payload.
- *
- * Why Opus specifically: the local LLMs (glm-5.1, qwen3.6) that write
- * the code are weaker reviewers. Opus is a much stronger critic and
- * has seen a huge code corpus — catches integration gaps, typos, bad
- * patterns the local model missed.
- *
- * Config-gated: autonomy.selfMod.reviewer.{enabled, model, maxDiffChars}.
- * If OpenRouter key isn't configured, review is skipped (fall through).
+ * Returns a structured review from the explicitly configured model, without
+ * provider fallback. Unavailable review is reported as skipped. Runtime
+ * self-mod application is unconditionally security-held: no reviewer verdict,
+ * configuration or human approval enables it. Staging, manual inspection,
+ * export and rejection remain available.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
@@ -161,7 +147,7 @@ function buildReviewPrompt(input: ReviewInput): string {
 
     sections.push('You are a senior code reviewer for TITAN, an autonomous AI agent framework written in TypeScript/ESM.');
     sections.push('Another TITAN specialist (a smaller local LLM) just produced the following staged changes for a self-modification goal.');
-    sections.push('Your job is ONE FINAL CHECK before these changes apply to /opt/TITAN.');
+    sections.push('Review this staged candidate for manual inspection. Runtime self-mod application is security-held; no verdict authorizes application.');
     sections.push('');
     sections.push('## Goal');
     sections.push(`Title: ${input.goalTitle}`);
@@ -213,7 +199,7 @@ function buildReviewPrompt(input: ReviewInput): string {
     sections.push('6. **Code quality**: idiomatic TypeScript? Follows TITAN\'s style (ESM, Zod schemas, explicit types)?');
     sections.push('');
     sections.push('## Your verdict options');
-    sections.push('- `approve` — apply the bundle as-is (safe, correct, integrated)');
+    sections.push('- `approve` — candidate appears safe, correct and integrated for manual review; runtime application remains held');
     sections.push('- `needs_changes` — close to good but has specific fixable issues; list them in `concerns`');
     sections.push('- `reject` — fundamentally flawed; do not apply (missing integration, security issue, wrong approach)');
     sections.push('');
@@ -285,8 +271,8 @@ function parseReview(raw: string): Omit<OpusReview, 'model' | 'durationMs' | 'ra
 
 /**
  * Run the Opus review. Returns a verdict + concerns. Never throws —
- * on error, returns `{verdict: 'skipped'}` so the caller can decide
- * whether to apply anyway (fail-open).
+ * on error, returns `{verdict: 'skipped'}` for an unavailable review.
+ * This informational verdict cannot bypass the runtime apply security hold.
  */
 export async function reviewStagedBundle(input: ReviewInput): Promise<OpusReview> {
     const cfg = resolveReviewerConfig();
@@ -366,6 +352,7 @@ export async function reviewStagedBundle(input: ReviewInput): Promise<OpusReview
         logger.info(COMPONENT, `Reviewing bundle for goal ${input.goalId} (${input.files.length} files) via ${cfg.model} — est $${estCost.toFixed(3)}`);
         const response = await chat({
             model: cfg.model,
+            noFallback: true,
             messages: [
                 { role: 'system', content: 'You are a rigorous code reviewer. Return ONLY a JSON verdict block.' },
                 { role: 'user', content: prompt },
@@ -409,8 +396,8 @@ export async function reviewStagedBundle(input: ReviewInput): Promise<OpusReview
 }
 
 /**
- * Is the reviewer configured to block on reject? (Used by applyStagedPR
- * to decide whether a `reject` verdict actually stops the apply.)
+ * Legacy review preference for callers inspecting review metadata. It cannot
+ * override the unconditional runtime apply security hold.
  */
 export function reviewerBlocksOnReject(): boolean {
     return resolveReviewerConfig().blockOnReject;

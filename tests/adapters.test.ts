@@ -15,11 +15,9 @@ import { useExternalCliFixture } from './helpers/external-cli-fixture.js';
 const cliFixture = useExternalCliFixture();
 
 describe('Adapter Registry', () => {
-    it('should have claude-code adapter registered', () => {
-        const adapter = getAdapter('claude-code');
-        expect(adapter).not.toBeNull();
-        expect(adapter!.type).toBe('claude-code');
-        expect(adapter!.displayName).toBe('Claude Code');
+    it('does not register or advertise the prohibited Claude adapter', () => {
+        expect(getAdapter('claude-code')).toBeNull();
+        expect(listAdapters()).not.toContain('claude-code');
     });
 
     it('should have codex adapter registered', () => {
@@ -42,10 +40,10 @@ describe('Adapter Registry', () => {
 
     it('should list all registered adapters', () => {
         const types = listAdapters();
-        expect(types).toContain('claude-code');
+        expect(types).not.toContain('claude-code');
         expect(types).toContain('codex');
         expect(types).toContain('bash');
-        expect(types.length).toBeGreaterThanOrEqual(3);
+        expect(types.length).toBeGreaterThanOrEqual(2);
     });
 
     it('should support custom adapter registration', () => {
@@ -150,19 +148,16 @@ describe('Bash Adapter', () => {
 });
 
 describe('Claude Code Adapter', () => {
-    it('should pass the task to a controlled Claude executable and return its output', async () => {
-        const adapter = getAdapter('claude-code')!;
-        const ctx: AdapterContext = {
-            task: 'echo test',
-            titanApiUrl: 'http://localhost:48420',
-            titanRunId: 'test-run-6',
-            titanIssueId: 'test-issue-6',
-            timeoutMs: 5_000,
-        };
-        const result = await adapter.execute(ctx);
-        expect(result.success).toBe(true);
-        expect(result.content).toBe('synthetic-claude-result');
-        expect(cliFixture.invocations().map(call => call.args)).toEqual([['--print', 'echo test']]);
+    it('rejects direct imports and forbidden adapter registration without execution', async () => {
+        const { claudeCodeAdapter } = await import('../src/agent/adapters/claudeCode.js');
+        const result = await claudeCodeAdapter.execute({ task: 'fixture', titanApiUrl: '', titanRunId: '', titanIssueId: '' });
+        expect(result.success).toBe(false);
+        expect(result.content).toContain('disabled by TITAN standing policy');
+        expect(cliFixture.invocations()).toEqual([]);
+        for (const type of ['claude', 'claude-code', 'claude_code', 'Claude Code']) {
+            expect(() => registerAdapter({ ...claudeCodeAdapter, type })).toThrow(/disabled by TITAN standing policy/);
+            expect(getAdapter(type)).toBeNull();
+        }
     });
 });
 

@@ -5,7 +5,7 @@
  * file mutations targeting the self-mod root (config.autonomy.selfMod.target)
  * are diverted into a per-goal staging directory instead of landing on the
  * live tree. The staged files surface as a single `self_mod_pr` approval the
- * human reviews and either applies or rejects.
+ * human can inspect, export or reject; runtime application is security-held.
  *
  * This exists because on 2026-04-18 TITAN completed 100% of a "self-healing
  * framework" goal by writing to `<sibling-project>/` — an unrelated Next.js
@@ -27,12 +27,11 @@
  *   - After the write succeeds, toolRunner calls `recordStagedWrite(...)`
  *     which appends the file to the goal's PR bundle (creating the approval
  *     if it doesn't exist, or updating the `files[]` field if it does)
- *   - Tony views the approval, accepts → `applyStagedPR` copies files to
- *     live target under a shadow-git commit; rejects → the staging dir is
- *     archived and the approval resolved.
+ *   - Approval records the decision but cannot bypass the runtime apply hold.
+ *     Manual inspection/export remains available; rejecting archives the bundle.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, copyFileSync, readdirSync, statSync } from 'fs';
-import { join, resolve, relative, isAbsolute, dirname } from 'path';
+import { join, resolve, relative, isAbsolute } from 'path';
 import { loadConfig } from '../config/config.js';
 import { TITAN_HOME } from '../utils/constants.js';
 import logger from '../utils/logger.js';
@@ -156,7 +155,7 @@ export interface ScopeDecision {
  *
  * - If session has no goal context OR goal has no self-mod tags → `allow`
  * - If path is outside self-mod target → `reject` (scope lock)
- * - If staging disabled → `allow` (writes land directly on target)
+ * - If staging disabled → `reject` (runtime self-mod apply is security-held)
  * - If staging enabled → `stage` (write redirected to staging dir)
  */
 export function decideScope(sessionId: string | null, filePath: string): ScopeDecision {
@@ -177,7 +176,10 @@ export function decideScope(sessionId: string | null, filePath: string): ScopeDe
         };
     }
 
-    if (!sm.staging) return { action: 'allow' };
+    if (!sm.staging) return {
+        action: 'reject',
+        reason: 'Runtime self-modification is under a security hold. Enable staging for candidate inspection/export; direct self-mod writes are disabled.',
+    };
 
     // Staging enabled — redirect to staging dir.
     const absTarget = resolve(sm.target);
@@ -302,8 +304,7 @@ export async function recordStagedWrite(input: {
                 goalTitle: bundle.goalTitle,
                 proposedBy: bundle.proposedBy,
                 tags: bundle.tags,
-                // Pointer to bundle.json which has the latest file list —
-                // the approval handler reads this at apply-time.
+                // Pointer for manual inspection/export. Runtime application is held.
                 bundlePath: actualBundlePath,
                 initialFileCount: bundle.files.length,
                 firstFile: bundle.files[0]?.targetPath,
@@ -321,151 +322,28 @@ export async function recordStagedWrite(input: {
 }
 
 /**
- * Apply a staged PR to the live target. Called by the approval handler
- * when the human approves. Each file is copied to its targetPath, with
- * the parent directory created as needed. A shadow-git checkpoint is
- * taken before each write so rollback is trivial.
- *
- * Returns the list of files successfully applied (for audit logging).
+ * Runtime application is held until immutable reviewed bytes, contained targets
+ * and human approval are bound to the same candidate revision. Staging and
+ * rejection remain available; approving a candidate cannot bypass this hold.
  */
+export const SELF_MOD_APPLY_SECURITY_HOLD = 'Runtime self-mod apply is disabled by a security hold pending immutable reviewed bytes, target containment, and revision-bound human approval. The candidate remains staged for manual review and export.';
+
 export interface ApplyResult {
     applied: string[];
     failed: Array<{ path: string; error: string }>;
     bundle: SelfModPRBundle | null;
-    /** v4.10.0-local polish: Opus review outcome, when it ran. */
-    opusReview?: {
-        verdict: string;
-        confidence: number;
-        reasoning: string;
-        concerns: string[];
-        suggestions: string[];
-        model: string;
-    };
-    /** If opus rejected and blockOnReject is true, apply was skipped. */
-    blockedByReview?: boolean;
+    blockedBySecurityHold: true;
 }
 
 export async function applyStagedPR(goalId: string): Promise<ApplyResult> {
-    const applied: string[] = [];
-    const failed: Array<{ path: string; error: string }> = [];
-    const bundleDir = join(absStagingRoot(), goalId);
-    const bundlePath = join(bundleDir, 'bundle.json');
-    if (!existsSync(bundlePath)) {
-        return { applied, failed: [{ path: bundlePath, error: 'bundle.json missing' }], bundle: null };
-    }
-    let bundle: SelfModPRBundle;
-    try {
-        bundle = JSON.parse(readFileSync(bundlePath, 'utf-8')) as SelfModPRBundle;
-    } catch (err) {
-        return { applied, failed: [{ path: bundlePath, error: `bundle parse failed: ${(err as Error).message}` }], bundle: null };
-    }
-
-    // v4.10.0-local (Phase D): security scan the bundle before we apply.
-    // Secrets + incompatible licenses block the apply with a clear reason.
-    try {
-        const { scanBundle } = await import('./stagingScanners.js');
-        const scan = scanBundle(bundleDir);
-        if (scan.shouldBlock) {
-            const summary = scan.findings
-                .filter(f => f.severity === 'high')
-                .slice(0, 5)
-                .map(f => `  - ${f.path}:${f.line} [${f.pattern}] ${f.match}`)
-                .join('\n');
-            logger.warn(COMPONENT, `[StagingScanner] BLOCKED apply: ${scan.highSeverityCount} high-severity findings`);
-            return {
-                applied: [],
-                failed: bundle.files.map(f => ({
-                    path: f.targetPath,
-                    error: `Scanner blocked apply — ${scan.highSeverityCount} high-severity findings:\n${summary}`,
-                })),
-                bundle,
-            };
-        }
-    } catch (err) {
-        logger.debug(COMPONENT, `Scanner skipped: ${(err as Error).message}`);
-    }
-
-    // v4.10.0-local polish: Opus review gate. After scanners pass, send
-    // the bundle to Claude Opus (via OpenRouter) for a final review. If
-    // the reviewer says `reject` (and blockOnReject=true), apply is
-    // blocked and the concerns surface in the approval payload so the
-    // human sees *why*. Scan → Opus → apply is the full safety chain.
-    let opusReview: ApplyResult['opusReview'];
-    try {
-        const { reviewStagedBundle, reviewerBlocksOnReject } = await import('../safety/opusReview.js');
-        const review = await reviewStagedBundle({
-            goalId: bundle.goalId,
-            goalTitle: bundle.goalTitle,
-            tags: bundle.tags,
-            files: bundle.files.map(f => ({
-                targetPath: f.targetPath,
-                stagedPath: f.stagedPath,
-                sizeBytes: f.sizeBytes,
-            })),
-        });
-        opusReview = {
-            verdict: review.verdict,
-            confidence: review.confidence,
-            reasoning: review.reasoning,
-            concerns: review.concerns,
-            suggestions: review.suggestions,
-            model: review.model,
-        };
-        if (review.verdict === 'reject' && reviewerBlocksOnReject()) {
-            logger.warn(COMPONENT, `[OpusReview] BLOCKED apply: ${review.reasoning}`);
-            return {
-                applied: [],
-                failed: bundle.files.map(f => ({
-                    path: f.targetPath,
-                    error: `Opus reviewer rejected: ${review.reasoning}\nConcerns:\n${review.concerns.map(c => `  - ${c}`).join('\n')}`,
-                })),
-                bundle,
-                opusReview,
-                blockedByReview: true,
-            };
-        }
-        if (review.verdict === 'needs_changes' && reviewerBlocksOnReject()) {
-            logger.warn(COMPONENT, `[OpusReview] BLOCKED apply — needs changes: ${review.reasoning}`);
-            return {
-                applied: [],
-                failed: bundle.files.map(f => ({
-                    path: f.targetPath,
-                    error: `Opus reviewer flagged needs_changes: ${review.reasoning}\nFixes needed:\n${review.suggestions.map(s => `  - ${s}`).join('\n')}`,
-                })),
-                bundle,
-                opusReview,
-                blockedByReview: true,
-            };
-        }
-        logger.info(COMPONENT, `[OpusReview] Verdict: ${review.verdict} (confidence ${review.confidence.toFixed(2)}) — proceeding with apply`);
-    } catch (err) {
-        logger.debug(COMPONENT, `Opus review skipped: ${(err as Error).message}`);
-    }
-
-    const { snapshotBeforeWrite } = await import('./shadowGit.js').catch(() => ({ snapshotBeforeWrite: async (_t: string, _p: string) => { /* ok */ } }));
-    for (const f of bundle.files) {
-        try {
-            // Shadow-git snapshot so we can roll back if approval turns out bad.
-            await snapshotBeforeWrite('self_mod_pr', f.targetPath).catch(() => { /* best effort */ });
-            mkdirSync(dirname(f.targetPath), { recursive: true });
-            copyFileSync(f.stagedPath, f.targetPath);
-            applied.push(f.targetPath);
-        } catch (err) {
-            failed.push({ path: f.targetPath, error: (err as Error).message });
-        }
-    }
-    // Archive the staged bundle for audit (rename staging/<goalId> → staging/applied-<goalId>-<ts>)
-    try {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        const archiveDir = join(absStagingRoot(), `applied-${goalId}-${ts}`);
-        mkdirSync(archiveDir, { recursive: true });
-        copyBundleDirectory(bundleDir, archiveDir);
-        rmSync(bundleDir, { recursive: true, force: true });
-        approvalByGoalId.delete(goalId);
-    } catch (err) {
-        logger.warn(COMPONENT, `Archive of applied bundle failed: ${(err as Error).message}`);
-    }
-    return { applied, failed, bundle, opusReview };
+    // Deliberately do not read mutable bundle metadata or start scanners,
+    // reviewers, snapshots, copies or archival while this boundary is held.
+    return {
+        applied: [],
+        failed: [{ path: goalId, error: SELF_MOD_APPLY_SECURITY_HOLD }],
+        bundle: null,
+        blockedBySecurityHold: true,
+    };
 }
 
 /**
