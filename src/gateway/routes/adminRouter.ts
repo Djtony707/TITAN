@@ -294,7 +294,7 @@ export function createAdminRouter(): Router {
         graphStats = { entities: gd.nodes.length, edges: gd.edges.length };
       } catch { /* graph may not be initialized */ }
 
-      const activeGoals = goals.filter((g) => g.status !== 'completed' && g.status !== 'failed');
+      const activeGoals = goals.filter((g) => g.status === 'active');
 
       res.json({
         activeSessions: sessions.length,

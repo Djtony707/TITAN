@@ -6,7 +6,7 @@
 import * as cron from 'node-cron';
 import { exec } from 'child_process';
 import { registerSkill } from '../registry.js';
-import { getDb } from '../../memory/memory.js';
+import { getDb, saveMemoryNow } from '../../memory/memory.js';
 import { v4 as uuid } from 'uuid';
 import logger from '../../utils/logger.js';
 
@@ -152,25 +152,27 @@ function scheduleJob(job: CronJobLike): ReturnType<typeof cron.schedule> | null 
         return null;
     }
 
-    const mode: 'shell' | 'tool' = job.mode === 'tool' ? 'tool' : 'shell';
     const task = cron.schedule(job.schedule, async () => {
-        logger.info(COMPONENT, `Running cron job ${job.id} (mode=${mode}, name=${job.name ?? '(unnamed)'}): ${job.command.slice(0, 120)}`);
-
         const store = getDb();
         const record = store.cronJobs.find((j) => j.id === job.id);
-        if (record) record.last_run = new Date().toISOString();
+        // A tick can already be queued when stop() runs. Recheck the current
+        // record and handle so disabled, deleted, or replaced tasks stay stopped.
+        if (!record?.enabled || activeTasks.get(job.id) !== task) return;
+        const mode: 'shell' | 'tool' = record.mode === 'tool' ? 'tool' : 'shell';
+        logger.info(COMPONENT, `Running cron job ${job.id} (mode=${mode}, name=${record.name ?? '(unnamed)'}): ${record.command.slice(0, 120)}`);
+        record.last_run = new Date().toISOString();
 
         try {
             let output: string;
             if (mode === 'tool') {
-                output = await executePrompt(job.command, job.allowedTools);
-            } else if (looksLikeLlmPrompt(job.command)) {
+                output = await executePrompt(record.command, record.allowedTools);
+            } else if (looksLikeLlmPrompt(record.command)) {
                 // Defensive guard for "shell" mode that's actually an LLM
                 // prompt. Refuse instead of letting bash mangle it.
-                output = `[refused] This shell-mode cron job looks like an LLM prompt, not a shell command. Re-create the job with mode:"tool" so it routes to the agent loop. Command head: ${job.command.slice(0, 80)}…`;
+                output = `[refused] This shell-mode cron job looks like an LLM prompt, not a shell command. Re-create the job with mode:"tool" so it routes to the agent loop. Command head: ${record.command.slice(0, 80)}…`;
                 logger.warn(COMPONENT, `Cron job ${job.id}: REFUSED to bash-execute LLM-prompt-shaped command`);
             } else {
-                output = await executeCommand(job.command);
+                output = await executeCommand(record.command);
             }
             logger.info(COMPONENT, `Cron job ${job.id} completed:\n${output.slice(0, 500)}`);
         } catch (err) {
@@ -189,6 +191,37 @@ function stopAndRemoveTask(jobId: string): void {
         activeTasks.delete(jobId);
         logger.debug(COMPONENT, `Stopped cron task: ${jobId}`);
     }
+}
+
+/** Keep API and skill toggles in sync with the live scheduler and saved store. */
+export function setCronJobEnabled(jobId: string, enabled: boolean): ReturnType<typeof getDb>['cronJobs'][number] | undefined {
+    const job = getDb().cronJobs.find((entry) => entry.id === jobId);
+    if (!job) return undefined;
+    if (!enabled) {
+        job.enabled = false;
+        try {
+            stopAndRemoveTask(jobId);
+        } finally {
+            // Even a failed save must leave dispatch stopped. The caller gets
+            // an error, never a claim that the old on-disk state was changed.
+            saveMemoryNow();
+        }
+    } else {
+        const previouslyEnabled = job.enabled;
+        job.enabled = true;
+        try {
+            saveMemoryNow();
+        } catch (error) {
+            job.enabled = previouslyEnabled;
+            throw error;
+        }
+        // Do not admit work until the enabled state has been saved successfully.
+        if (!activeTasks.has(jobId)) {
+            const task = scheduleJob(job);
+            if (task) activeTasks.set(jobId, task);
+        }
+    }
+    return job;
 }
 
 // ─── Public: init scheduler on gateway boot ─────────────────────
@@ -358,19 +391,8 @@ Errors:
                         const eId = args.jobId as string;
                         if (!eId) return 'Error: jobId is required';
 
-                        const job = store.cronJobs.find((j) => j.id === eId);
+                        const job = setCronJobEnabled(eId, true);
                         if (!job) return `Error: no cron job found with ID: ${eId}`;
-
-                        job.enabled = true;
-
-                        // Start scheduling if not already active.
-                        // v6.0.5 — Pass the whole record so mode is honored.
-                        if (!activeTasks.has(eId)) {
-                            const task = scheduleJob(job);
-                            if (task) {
-                                activeTasks.set(eId, task);
-                            }
-                        }
 
                         logger.info(COMPONENT, `Enabled cron job: ${job.name} (${eId})`);
                         return `Enabled cron job "${job.name}" — it will now run on schedule (${job.schedule})`;
@@ -381,13 +403,8 @@ Errors:
                         const dId = args.jobId as string;
                         if (!dId) return 'Error: jobId is required';
 
-                        const job = store.cronJobs.find((j) => j.id === dId);
+                        const job = setCronJobEnabled(dId, false);
                         if (!job) return `Error: no cron job found with ID: ${dId}`;
-
-                        job.enabled = false;
-
-                        // Stop the running task
-                        stopAndRemoveTask(dId);
 
                         logger.info(COMPONENT, `Disabled cron job: ${job.name} (${dId})`);
                         return `Disabled cron job "${job.name}" — it will no longer run until re-enabled`;

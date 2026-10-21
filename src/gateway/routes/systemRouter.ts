@@ -13,6 +13,7 @@ import { getDb } from '../../memory/memory.js';
 import { loadConfig } from '../../config/config.js';
 import { TITAN_HOME } from '../../utils/constants.js';
 import { setupSSEFlush } from '../../utils/sseFlush.js';
+import { setCronJobEnabled } from '../../skills/builtin/cron.js';
 
 const COMPONENT = 'SystemRouter';
 
@@ -70,8 +71,12 @@ export function createSystemRouter(): Router {
     const store = getDb();
     const job = store.cronJobs.find(j => j.id === req.params.id);
     if (!job) { res.status(404).json({ error: 'Cron job not found' }); return; }
-    job.enabled = typeof req.body.enabled === 'boolean' ? req.body.enabled : !job.enabled;
-    res.json({ job });
+    try {
+      setCronJobEnabled(job.id, typeof req.body.enabled === 'boolean' ? req.body.enabled : !job.enabled);
+      res.json({ job });
+    } catch {
+      res.status(500).json({ error: 'Failed to save cron state; the requested change was not acknowledged' });
+    }
   });
 
   router.delete('/cron/:id', (req, res) => {

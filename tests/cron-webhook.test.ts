@@ -428,8 +428,10 @@ describe('Cron — cron tick callback', () => {
 
         await capturedCronCallback!();
 
-        // Should still complete without error — no last_run set since record is gone
-        expect(mockLogger.info).toHaveBeenCalledWith(
+        // Deletion revokes a queued tick; no command or completion is allowed.
+        const { exec } = await import('child_process');
+        expect(exec).not.toHaveBeenCalled();
+        expect(mockLogger.info).not.toHaveBeenCalledWith(
             'Cron',
             expect.stringContaining('completed'),
         );
@@ -469,6 +471,7 @@ describe('Cron — list formatting edge cases', () => {
         vi.doMock('child_process', () => ({ exec: vi.fn() }));
         vi.doMock('../src/memory/memory.js', () => ({
             getDb: vi.fn().mockReturnValue({ cronJobs: mockCronJobs }),
+            saveMemoryNow: vi.fn(),
         }));
 
         const { registerCronSkill } = await import('../src/skills/builtin/cron.js');

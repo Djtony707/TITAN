@@ -355,9 +355,11 @@ describe('Cron Skill', () => {
 
         vi.doMock('../../memory/memory.js', () => ({
             getDb: vi.fn().mockReturnValue({ cronJobs: mockCronJobs }),
+            saveMemoryNow: vi.fn(),
         }));
         vi.doMock('../src/memory/memory.js', () => ({
             getDb: vi.fn().mockReturnValue({ cronJobs: mockCronJobs }),
+            saveMemoryNow: vi.fn(),
         }));
 
         const { registerCronSkill } = await import('../src/skills/builtin/cron.js');
