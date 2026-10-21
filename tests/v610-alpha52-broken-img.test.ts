@@ -13,13 +13,17 @@
  * via prompt engineering alone, which the LLM ignores). alpha.52
  * applies that pattern: `wrapHtmlForViewer` rewrites every
  * non-trusted `<img>` to a wood/brass placeholder `<figure>` block
- * that uses the original alt text. The runtime onerror handler in
- * HtmlShadowFrame catches anything that slips past the rewrite.
+ * that uses the original alt text. The inert iframe now permits only
+ * embedded images; the maintained DOM sanitizer handles HTML parsing.
  *
  * These tests pin the rewrite behavior so future refactors can't
  * accidentally re-enable broken-icon rendering.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { JSDOM } from 'jsdom';
+let dom: JSDOM;
+beforeEach(() => { dom = new JSDOM(''); vi.stubGlobal('window', dom.window); });
+afterEach(() => { dom.window.close(); vi.unstubAllGlobals(); });
 import { wrapHtmlForViewer } from '../ui/src/pages/mission/htmlSanitize';
 
 describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder', () => {
@@ -27,7 +31,7 @@ describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder',
         const input = '<p>Hello</p><img src="https://example.com/nope.jpg" alt="Buzz Aldrin on the lunar surface">';
         const out = wrapHtmlForViewer(input);
         expect(out).not.toMatch(/src="https:\/\/example\.com\/nope\.jpg"/);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).toMatch(/Buzz Aldrin on the lunar surface/);
         expect(out).toMatch(/Image source unavailable/i);
     });
@@ -35,14 +39,14 @@ describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder',
     it('rewrites <img src="http://…"> too', () => {
         const input = '<img src="http://foo.com/x.png" alt="x">';
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).not.toMatch(/src="http:\/\/foo\.com\/x\.png"/);
     });
 
     it('rewrites protocol-relative //host/img.jpg', () => {
         const input = '<img src="//cdn.example.com/x.jpg" alt="proto-rel">';
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).not.toMatch(/src="\/\/cdn/);
     });
 
@@ -50,27 +54,28 @@ describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder',
         const input = '<img src="data:image/png;base64,iVBOR" alt="real png">';
         const out = wrapHtmlForViewer(input);
         expect(out).toMatch(/src="data:image\/png;base64,iVBOR"/);
-        expect(out).not.toMatch(/titan-img-missing/);
+        expect(out).not.toMatch(/<figure class="titan-img-missing"/);
     });
 
     it('passes blob: URLs through untouched', () => {
         const input = '<img src="blob:http://localhost/abc-123" alt="blob">';
         const out = wrapHtmlForViewer(input);
         expect(out).toMatch(/src="blob:http:\/\/localhost\/abc-123"/);
-        expect(out).not.toMatch(/titan-img-missing/);
+        expect(out).not.toMatch(/<figure class="titan-img-missing"/);
     });
 
-    it('passes same-origin relative paths through untouched', () => {
+    it('replaces same-origin request URLs rather than allowing ambient report requests', () => {
         const input = '<img src="/api/missions/abc/file?ref=hero.png" alt="hero">';
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/src="\/api\/missions\/abc\/file/);
-        expect(out).not.toMatch(/titan-img-missing/);
+        expect(out).not.toMatch(/src="\/api\/missions\/abc\/file/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
+        expect(out).toContain('hero');
     });
 
     it('falls back to "Image unavailable" when alt is empty', () => {
         const input = '<img src="https://x.com/y.jpg" alt="">';
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).toMatch(/Image unavailable/);
     });
 
@@ -83,7 +88,7 @@ describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder',
         // captions.
         const input = '<img src="https://x.com/y.jpg" alt="Tom & Jerry chase">';
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).not.toMatch(/Tom & Jerry chase/);
         expect(out).toMatch(/Tom &amp; Jerry chase/);
     });
@@ -111,7 +116,7 @@ describe('v6.1.0-alpha.52 — broken external <img> → wood/brass placeholder',
     it('handles single-quoted src attributes', () => {
         const input = "<img src='https://nope.com/x.jpg' alt='single quoted'>";
         const out = wrapHtmlForViewer(input);
-        expect(out).toMatch(/titan-img-missing/);
+        expect(out).toMatch(/<figure class="titan-img-missing"/);
         expect(out).toMatch(/single quoted/);
     });
 });
