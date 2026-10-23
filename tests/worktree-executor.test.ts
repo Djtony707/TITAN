@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { z } from 'zod';
 import type { ToolCall } from '../src/providers/base.js';
 import type { ToolContract } from '../src/agent/toolContract.js';
@@ -120,7 +120,13 @@ describe('Phase D.5 worktree isolation', () => {
     const tempRepos: string[] = [];
 
     beforeEach(() => {
-        process.chdir(originalCwd);
+        // executeTool hands the executor baseCwd = process.cwd(), so every
+        // worktree a test creates is registered in that repo's .git/worktrees.
+        // Run each test from a throwaway repo so the real checkout is never
+        // touched: registrations left there go stale once tmpHome is deleted.
+        const repo = createTempGitRepo();
+        tempRepos.push(repo);
+        process.chdir(repo);
         delete securityOverrides.commandTimeout;
         delete securityOverrides.toolTimeouts;
         delete securityOverrides.toolRetry;
@@ -145,6 +151,10 @@ describe('Phase D.5 worktree isolation', () => {
         for (const repo of tempRepos.splice(0)) {
             rmSync(repo, { recursive: true, force: true });
         }
+    });
+
+    afterAll(() => {
+        rmSync(tmpHome, { recursive: true, force: true });
     });
 
     it('destructive tool call runs inside the worktree', async () => {
@@ -209,10 +219,6 @@ describe('Phase D.5 worktree isolation', () => {
     });
 
     it('destructive shell sees parent edit_file content instead of stale HEAD', async () => {
-        const repo = createTempGitRepo();
-        tempRepos.push(repo);
-        process.chdir(repo);
-
         registerToolContract(contract(EDIT_FILE, ['write'], 'medium'));
         registerToolContract(contract(SHELL_TEST, ['destructive'], 'high'));
         registerTool({
