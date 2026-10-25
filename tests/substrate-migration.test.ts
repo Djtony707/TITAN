@@ -1189,6 +1189,43 @@ describe('substrate — D4 negative regression: alternate key directory exploit'
     });
 });
 
+describe('substrate — cross-process lock contention', () => {
+    it('(R23) opening while another process holds the write lock waits for it instead of failing "database is locked"', async () => {
+        const { spawn } = await import('child_process');
+        const home = freshHome();
+        const keysDir = join(home, 'company', 'keys');
+        mkdirSync(keysDir, { recursive: true });
+        const user = mintAgentKeys('user', keysDir);
+        const seed = new CompanyLog(home, keysDir);
+        seed.append({ kind: 'company.created', actor: 'user', payload: { name: 'Co' } }, user.privateKey);
+        seed.close();
+
+        // A second process takes an EXCLUSIVE lock on system.db (what a
+        // committing writer holds) and releases it after 400ms.
+        const holder = spawn(process.execPath, ['-e', [
+            `const db = new (require('node:sqlite').DatabaseSync)(${JSON.stringify(join(home, 'system.db'))});`,
+            `db.exec('BEGIN EXCLUSIVE');`,
+            `console.log('locked');`,
+            `setTimeout(() => { db.exec('COMMIT'); db.close(); }, 400);`,
+        ].join('')]);
+        const exited = new Promise<number | null>(resolve => holder.on('exit', resolve));
+        await new Promise<void>((resolve, reject) => {
+            holder.stdout.on('data', (d: Buffer) => { if (d.toString().includes('locked')) resolve(); });
+            holder.on('exit', code => reject(new Error(`lock holder exited early (${code})`)));
+        });
+
+        // Opening runs the schema read in ensureOpen, which needs the lock
+        // the holder has. It must wait for the holder, not throw.
+        const log = new CompanyLog(home, keysDir);
+        expect(log.count()).toBe(1);
+        log.append({ kind: 'room.message', actor: 'user', payload: { text: 'after contention' } }, user.privateKey);
+        expect(log.count()).toBe(2);
+        expect(log.verifyChain().ok).toBe(true);
+        log.close();
+        expect(await exited).toBe(0);
+    });
+});
+
 // ── Helpers for regression tests ─────────────────────────────────────
 
 /** Write a stale lock file owned by a (presumably dead) PID. */
